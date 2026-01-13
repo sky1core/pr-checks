@@ -8,16 +8,20 @@ PR 코멘트로 트리거되는 단위 테스트와 AI 코드 리뷰 워크플�
 
 ## 설치
 
-```bash
-npx create-pr-checks init
-```
+### 소스에서 빌드
 
-## 사용법
+```bash
+git clone https://github.com/sky1core/pr-checks.git
+cd pr-checks
+npm install
+npm run build
+npm link  # 글로벌 명령어 등록
+```
 
 ### 초기 설정
 
 ```bash
-npx create-pr-checks init
+create-pr-checks --init
 ```
 
 `.pr-checks/config.yml` 파일이 생성됩니다.
@@ -25,7 +29,7 @@ npx create-pr-checks init
 ### 워크플로우 생성
 
 ```bash
-npx create-pr-checks generate
+create-pr-checks
 ```
 
 설정에 따라 워크플로우 파일이 생성됩니다:
