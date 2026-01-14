@@ -131,7 +131,7 @@ function printSummary(config: Config): void {
   console.log(`  • 체크 수: ${input.checks.length}개`);
 
   for (const check of input.checks) {
-    const required = check.required ? '필수' : '선택';
+    const required = check.mustRun ? '필수' : '선택';
     const mustPass = check.mustPass ? ', 통과 필수' : '';
     if (isPrTestCheck(check)) {
       console.log(`    - ${check.name} (${check.trigger}): ${check.command} [${required}${mustPass}]`);

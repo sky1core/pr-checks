@@ -142,7 +142,7 @@ export function generatePrReviewJob(
   const runConditions = [
     `needs.check-trigger.outputs.trigger == '${check.trigger}'`,
   ];
-  if (check.required) {
+  if (check.mustRun) {
     runConditions.push(`needs.check-trigger.outputs.trigger == '${input.ciTrigger}'`);
   }
 
@@ -154,7 +154,7 @@ export function generatePrReviewJob(
 
   // ciTrigger인 경우 pr-test 성공 조건 추가
   let prTestSuccessCondition = '';
-  if (check.required && requiredPrTests.length > 0) {
+  if (check.mustRun && requiredPrTests.length > 0) {
     const prTestConditions = requiredPrTests.map(
       (pt) => `needs.${pt.name}.result == 'success'`
     );

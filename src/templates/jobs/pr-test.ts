@@ -52,7 +52,7 @@ export function generatePrTestJob(check: PrTestCheck, config: Config): string {
   const runConditions = [
     `needs.check-trigger.outputs.trigger == '${check.trigger}'`,
   ];
-  if (check.required) {
+  if (check.mustRun) {
     runConditions.push(`needs.check-trigger.outputs.trigger == '${input.ciTrigger}'`);
   }
 

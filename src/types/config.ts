@@ -39,8 +39,8 @@ interface BaseCheck {
   trigger: string;
   /** 체크 타입 */
   type: CheckType;
-  /** ciTrigger 실행 시 포함 여부 */
-  required: boolean;
+  /** 실행 필수 여부: true면 실행해야 머지 가능 */
+  mustRun: boolean;
   /** 머지 게이트 통과 조건: true면 성공해야 함, false면 실행만 하면 됨 */
   mustPass: boolean;
 }
@@ -86,7 +86,7 @@ export interface InputConfig {
   platform: Platform;
   /** 체크 목록 */
   checks: Check[];
-  /** 전체 실행 명령어 (required: true인 체크만 실행) */
+  /** 전체 실행 명령어 (mustRun: true인 체크만 실행) */
   ciTrigger: string;
   /** Approval override 워크플로우 생성 여부 */
   generateApprovalOverride: boolean;
@@ -125,7 +125,7 @@ export const DEFAULT_INPUT_CONFIG: InputConfig = {
       name: 'pr-test',
       trigger: '/test',
       type: 'pr-test',
-      required: true,
+      mustRun: true,
       mustPass: true,
       command: 'npm test',
       framework: 'node',
@@ -134,7 +134,7 @@ export const DEFAULT_INPUT_CONFIG: InputConfig = {
       name: 'pr-review',
       trigger: '/review',
       type: 'pr-review',
-      required: true,
+      mustRun: true,
       mustPass: false,
       provider: 'bedrock',
       model: 'us.amazon.nova-micro-v1:0',

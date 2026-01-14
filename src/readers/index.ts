@@ -147,7 +147,7 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
   const baseCheck = {
     name: name.trim(),
     trigger: trigger.trim(),
-    required: parseBoolean(rawCheck.required, true),
+    mustRun: parseBoolean(rawCheck.mustRun, true),
     mustPass: parseBoolean(rawCheck.mustPass, false),
   };
 

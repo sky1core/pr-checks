@@ -74,9 +74,8 @@ ${permissionCheck}
 
           PR_NUMBER="\${{ github.event.issue.number }}"
 
-          # 트리거 명령어 매칭 (첫 줄 첫 단어만 사용)
-          FIRST_LINE=\$(printf '%s' "\${{ github.event.comment.body }}" | head -1)
-          FIRST_WORD=\$(echo "\$FIRST_LINE" | awk '{print \$1}')
+          # 트리거 명령어 매칭 (첫 비어있지 않은 줄의 첫 단어)
+          FIRST_WORD=\$(printf '%s' "\${{ github.event.comment.body }}" | awk 'NF{print \$1; exit}')
           TRIGGER=""
           if [[ "\$FIRST_WORD" =~ ^(${triggerPattern})\$ ]]; then
             TRIGGER="\$FIRST_WORD"

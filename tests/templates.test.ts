@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { execSync } from 'child_process';
 import { generatePrChecksWorkflow } from '../src/templates/pr-checks.js';
 import { generateApprovalOverrideWorkflow } from '../src/templates/approval-override.js';
 import type { Config, PrTestCheck, PrReviewCheck } from '../src/types/config.js';
@@ -12,7 +13,7 @@ const createTestConfig = (overrides: Partial<Config> = {}): Config => ({
         name: 'pr-test',
         trigger: '/test',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm test',
         framework: 'node',
@@ -25,7 +26,7 @@ const createTestConfig = (overrides: Partial<Config> = {}): Config => ({
         name: 'pr-review',
         trigger: '/review',
         type: 'pr-review',
-        required: true,
+        mustRun: true,
         mustPass: false,
         provider: 'bedrock',
         model: 'us.amazon.nova-micro-v1:0',
@@ -115,7 +116,7 @@ describe('pr-checks.yml 생성', () => {
           name: 'my-test',
           trigger: '/mytest',
           type: 'pr-test',
-          required: true,
+          mustRun: true,
           mustPass: true,
           command: 'npm run test:unit',
         } as PrTestCheck,
@@ -123,7 +124,7 @@ describe('pr-checks.yml 생성', () => {
           name: 'lint-check',
           trigger: '/lint',
           type: 'pr-test',
-          required: false,
+          mustRun: false,
           mustPass: false,
           command: 'npm run lint',
         } as PrTestCheck,
@@ -722,11 +723,11 @@ describe('approval-override.yml 상세 검증', () => {
       expect(run).toContain('Overridden');
     });
 
-    it('required + mustPass 체크들의 상태를 확인해야 함', () => {
+    it('mustRun + mustPass 체크들의 상태를 확인해야 함', () => {
       const config = createTestConfig();
       const yaml = generateApprovalOverrideWorkflow(config);
 
-      // unit-test는 required + mustPass이므로 상태 확인이 있어야 함
+      // unit-test는 mustRun + mustPass이므로 상태 확인이 있어야 함
       expect(yaml).toContain('pr-test');
     });
   });
@@ -752,14 +753,14 @@ describe('approval-override.yml 상세 검증', () => {
 });
 
 describe('checks 배열 기반 동작', () => {
-  it('required 체크만 ciTrigger에 포함되어야 함', () => {
+  it('mustRun 체크만 ciTrigger에 포함되어야 함', () => {
     const config = createTestConfig();
     config.input.checks = [
       {
-        name: 'required-test',
+        name: 'must-run-test',
         trigger: '/test',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm test',
       } as PrTestCheck,
@@ -767,7 +768,7 @@ describe('checks 배열 기반 동작', () => {
         name: 'optional-lint',
         trigger: '/lint',
         type: 'pr-test',
-        required: false,
+        mustRun: false,
         mustPass: false,
         command: 'npm run lint',
       } as PrTestCheck,
@@ -775,7 +776,7 @@ describe('checks 배열 기반 동작', () => {
 
     const yaml = generatePrChecksWorkflow(config);
 
-    // check-trigger job에서 ciTrigger 처리 시 required 체크만 트리거
+    // check-trigger job에서 ciTrigger 처리 시 mustRun 체크만 트리거
     expect(yaml).toContain('/checks');
   });
 
@@ -791,7 +792,60 @@ describe('checks 배열 기반 동작', () => {
     const config = createTestConfig();
     const yaml = generatePrChecksWorkflow(config);
 
-    // ai-review는 required=true, mustPass=false
+    // ai-review는 mustRun=true, mustPass=false
     expect(yaml).toContain('pr-review');
+  });
+});
+
+describe('트리거 파싱 로직', () => {
+  // 워크플로우에 사용되는 bash 로직을 직접 테스트
+  const extractFirstWord = (comment: string): string => {
+    // 워크플로우의 실제 로직: awk 'NF{print $1; exit}'
+    const result = execSync(`printf '%s' "${comment.replace(/"/g, '\\"')}" | awk 'NF{print $1; exit}'`, {
+      encoding: 'utf-8',
+    });
+    return result.trim();
+  };
+
+  it('일반 트리거 명령어', () => {
+    expect(extractFirstWord('/review')).toBe('/review');
+    expect(extractFirstWord('/test')).toBe('/test');
+    expect(extractFirstWord('/checks')).toBe('/checks');
+  });
+
+  it('뒤에 줄바꿈이 있는 경우', () => {
+    expect(extractFirstWord('/review\n')).toBe('/review');
+    expect(extractFirstWord('/review\n\n')).toBe('/review');
+  });
+
+  it('앞에 줄바꿈이 있는 경우', () => {
+    expect(extractFirstWord('\n/review')).toBe('/review');
+    expect(extractFirstWord('\n\n/review')).toBe('/review');
+  });
+
+  it('앞뒤에 줄바꿈이 있는 경우', () => {
+    expect(extractFirstWord('\n/review\n')).toBe('/review');
+    expect(extractFirstWord('\n\n/review\n\n')).toBe('/review');
+  });
+
+  it('앞에 공백이 있는 경우', () => {
+    expect(extractFirstWord('  /review')).toBe('/review');
+    expect(extractFirstWord('\t/review')).toBe('/review');
+  });
+
+  it('뒤에 추가 텍스트가 있는 경우', () => {
+    expect(extractFirstWord('/review please')).toBe('/review');
+    expect(extractFirstWord('/review\nmore text')).toBe('/review');
+  });
+
+  it('빈 문자열 또는 공백만', () => {
+    expect(extractFirstWord('')).toBe('');
+    expect(extractFirstWord('   ')).toBe('');
+    expect(extractFirstWord('\n\n')).toBe('');
+  });
+
+  it('트리거가 아닌 텍스트', () => {
+    expect(extractFirstWord('hello world')).toBe('hello');
+    expect(extractFirstWord('LGTM')).toBe('LGTM');
   });
 });

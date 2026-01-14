@@ -18,7 +18,7 @@ export function generateRestoreGateJob(config: Config, branchCondition: string):
   const { input } = config;
 
   // required + mustPass 체크들의 상태 확인 로직 생성
-  const requiredMustPassChecks = input.checks.filter((c) => c.required && c.mustPass);
+  const requiredMustPassChecks = input.checks.filter((c) => c.mustRun && c.mustPass);
   const checkFailureConditions: string[] = [];
 
   for (const check of requiredMustPassChecks) {
@@ -33,7 +33,7 @@ export function generateRestoreGateJob(config: Config, branchCondition: string):
   }
 
   // required but !mustPass 체크들도 확인 (실행하지 않았으면 복원)
-  const requiredRunOnlyChecks = input.checks.filter((c) => c.required && !c.mustPass);
+  const requiredRunOnlyChecks = input.checks.filter((c) => c.mustRun && !c.mustPass);
   for (const check of requiredRunOnlyChecks) {
     checkFailureConditions.push(`
           # ${check.name} 실행 여부 확인

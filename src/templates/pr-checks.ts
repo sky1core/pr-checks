@@ -15,7 +15,7 @@ function generateGuideCommentJob(config: Config): string {
 
   // 체크 목록 테이블 생성
   const checkRows = input.checks.map((check) => {
-    const required = check.required ? 'Yes' : 'No';
+    const required = check.mustRun ? 'Yes' : 'No';
     const mustPass = check.mustPass ? ' (must pass)' : '';
     return `          | \`${check.trigger}\` | ${check.name} | ${required}${mustPass} |`;
   });
@@ -66,7 +66,7 @@ export function generatePrChecksWorkflow(config: Config): string {
   // 체크 분류
   const prTestChecks = input.checks.filter(isPrTestCheck);
   const prReviewChecks = input.checks.filter(isPrReviewCheck);
-  const requiredPrTests = prTestChecks.filter((c) => c.required);
+  const requiredPrTests = prTestChecks.filter((c) => c.mustRun);
 
   // 각 체크 job 생성
   const prTestJobs = prTestChecks

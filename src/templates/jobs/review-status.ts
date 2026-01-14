@@ -12,7 +12,7 @@ import { STATUS_MESSAGES, OVERRIDE_DESCRIPTION } from '../constants/messages.js'
  */
 export function generateReviewStatusJob(config: Config): string {
   const { input } = config;
-  const requiredChecks = input.checks.filter((c) => c.required);
+  const requiredChecks = input.checks.filter((c) => c.mustRun);
 
   // 의존성: check-trigger + 모든 체크 jobs
   const allJobIds = input.checks.map((c) => c.name);

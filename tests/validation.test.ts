@@ -11,7 +11,7 @@ const createTestConfig = (): Config => ({
         name: 'pr-test',
         trigger: '/test',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm test',
         framework: 'node',
@@ -21,7 +21,7 @@ const createTestConfig = (): Config => ({
         name: 'pr-review',
         trigger: '/review',
         type: 'pr-review',
-        required: true,
+        mustRun: true,
         mustPass: false,
         provider: 'bedrock',
         model: 'us.amazon.nova-micro-v1:0',
@@ -54,7 +54,7 @@ describe('입력값에 따른 YAML 생성', () => {
           name: 'single-test',
           trigger: '/test',
           type: 'pr-test',
-          required: true,
+          mustRun: true,
           mustPass: true,
           command: 'npm test',
         } as PrTestCheck,
@@ -151,7 +151,7 @@ describe('입력값에 따른 YAML 생성', () => {
         name: `test-${i}`,
         trigger: `/test${i}`,
         type: 'pr-test',
-        required: i % 2 === 0,
+        mustRun: i % 2 === 0,
         mustPass: i % 2 === 0,
         command: `npm run test${i}`,
       } as PrTestCheck));
@@ -185,14 +185,14 @@ describe('approval-override 입력 검증', () => {
     expect(yaml).toContain("github.event.pull_request.base.ref == 'main'");
   });
 
-  it('required + mustPass 체크가 여러 개여도 처리해야 함', () => {
+  it('mustRun + mustPass 체크가 여러 개여도 처리해야 함', () => {
     const config = createTestConfig();
     config.input.checks = [
       {
         name: 'test-1',
         trigger: '/test1',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm test',
       } as PrTestCheck,
@@ -200,7 +200,7 @@ describe('approval-override 입력 검증', () => {
         name: 'test-2',
         trigger: '/test2',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm run test2',
       } as PrTestCheck,
@@ -215,14 +215,14 @@ describe('approval-override 입력 검증', () => {
 });
 
 describe('checks 배열 검증', () => {
-  it('required가 true인 체크만 ciTrigger로 실행됨', () => {
+  it('mustRun이 true인 체크만 ciTrigger로 실행됨', () => {
     const config = createTestConfig();
     config.input.checks = [
       {
-        name: 'required-test',
+        name: 'must-run-test',
         trigger: '/test',
         type: 'pr-test',
-        required: true,
+        mustRun: true,
         mustPass: true,
         command: 'npm test',
       } as PrTestCheck,
@@ -230,14 +230,14 @@ describe('checks 배열 검증', () => {
         name: 'optional-lint',
         trigger: '/lint',
         type: 'pr-test',
-        required: false,
+        mustRun: false,
         mustPass: false,
         command: 'npm run lint',
       } as PrTestCheck,
     ];
 
     const yaml = generatePrChecksWorkflow(config);
-    // ciTrigger(/checks)로 실행 시 required 체크만 실행되어야 함
+    // ciTrigger(/checks)로 실행 시 mustRun 체크만 실행되어야 함
     expect(yaml).toContain(config.input.ciTrigger);
   });
 
