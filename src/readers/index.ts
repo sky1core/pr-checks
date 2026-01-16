@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import yaml from 'yaml';
+import yn from 'yn';
 import type {
   InputConfig,
   Config,
@@ -108,7 +109,8 @@ function parseString(value: unknown, defaultValue: string): string {
 
 function parseBoolean(value: unknown, defaultValue: boolean): boolean {
   if (value === undefined || value === null) return defaultValue;
-  return Boolean(value);
+  const result = yn(value, { default: defaultValue });
+  return result;
 }
 
 function parsePlatform(value: unknown, defaultValue: Platform): Platform {

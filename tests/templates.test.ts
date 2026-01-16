@@ -1029,6 +1029,17 @@ describe('CLI provider 지원', () => {
 
       expect(yaml).toContain('CLI: claude');
     });
+
+    it('diff 크기를 awk로 계산해야 함 (bc 대신)', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      // awk로 KB 변환 (bc 의존성 제거)
+      expect(yaml).toContain('DIFF_KB=$(awk');
+      expect(yaml).toContain('$DIFF_SIZE / 1024');
+      // bc는 사용하면 안 됨
+      expect(yaml).not.toContain('| bc');
+    });
   });
 
   describe('YAML 유효성', () => {

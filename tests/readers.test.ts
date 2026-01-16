@@ -828,5 +828,125 @@ describe('readers', () => {
         expect(config.input.selfHosted?.docker).toBe(true);
       });
     });
+
+    describe('parseBoolean 동작', () => {
+      it('문자열 "false"는 false로 파싱해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        // YAML에서 따옴표로 감싸면 문자열로 파싱됨
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          `checks:
+  - name: pr-test
+    trigger: /test
+    type: pr-test
+    mustRun: "false"
+    mustPass: "false"
+    command: npm test
+ciTrigger: /checks
+branches:
+  - main`
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.checks[0].mustRun).toBe(false);
+        expect(config.input.checks[0].mustPass).toBe(false);
+      });
+
+      it('문자열 "true"는 true로 파싱해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          `checks:
+  - name: pr-test
+    trigger: /test
+    type: pr-test
+    mustRun: "true"
+    mustPass: "true"
+    command: npm test
+ciTrigger: /checks
+branches:
+  - main`
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.checks[0].mustRun).toBe(true);
+        expect(config.input.checks[0].mustPass).toBe(true);
+      });
+
+      it('문자열 "0", "no"도 false로 파싱해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          `checks:
+  - name: pr-test
+    trigger: /test
+    type: pr-test
+    mustRun: "0"
+    mustPass: "no"
+    command: npm test
+ciTrigger: /checks
+branches:
+  - main`
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.checks[0].mustRun).toBe(false);
+        expect(config.input.checks[0].mustPass).toBe(false);
+      });
+
+      it('문자열 "1", "yes"도 true로 파싱해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          `checks:
+  - name: pr-test
+    trigger: /test
+    type: pr-test
+    mustRun: "1"
+    mustPass: "yes"
+    command: npm test
+ciTrigger: /checks
+branches:
+  - main`
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.checks[0].mustRun).toBe(true);
+        expect(config.input.checks[0].mustPass).toBe(true);
+      });
+
+      it('인식 안 되는 문자열은 기본값을 반환해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          `checks:
+  - name: pr-test
+    trigger: /test
+    type: pr-test
+    mustRun: "maybe"
+    mustPass: "treu"
+    command: npm test
+ciTrigger: /checks
+branches:
+  - main`
+        );
+
+        const config = await readConfig(testDir);
+        // 인식 안 되는 값은 각 필드의 기본값 반환
+        // mustRun 기본값: true, mustPass 기본값: false
+        expect(config.input.checks[0].mustRun).toBe(true);
+        expect(config.input.checks[0].mustPass).toBe(false);
+      });
+    });
   });
 });

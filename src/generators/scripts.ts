@@ -147,7 +147,7 @@ done
  */
 export async function generateScriptFiles(cwd: string, config: Config): Promise<string[]> {
   const scriptsDir = path.join(cwd, '.pr-checks', 'scripts');
-  await fs.ensureDir(scriptsDir);
+  await fs.mkdir(scriptsDir, { recursive: true });
 
   const files: string[] = [];
 

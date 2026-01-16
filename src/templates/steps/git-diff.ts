@@ -21,10 +21,10 @@ export function generateGitDiffStep(_config: Config): string {
           # base 브랜치 최신화
           git fetch origin \$BASE_BRANCH
 
-          # diff 생성
-          git diff origin/\$BASE_BRANCH...\${{ steps.pr-fetch.outputs.pr_branch }} > diff.txt
+          # diff 생성 (workspace에 저장하여 다음 step에서 접근 가능)
+          git diff origin/\$BASE_BRANCH...\${{ steps.pr-fetch.outputs.pr_branch }} > \${{ github.workspace }}/diff.txt
 
-          DIFF_SIZE=\$(wc -c < diff.txt | tr -d ' ')
+          DIFF_SIZE=\$(wc -c < \${{ github.workspace }}/diff.txt | tr -d ' ')
           echo "Diff size: \$DIFF_SIZE bytes"
           echo "diff_size=\$DIFF_SIZE" >> \$GITHUB_OUTPUT
 

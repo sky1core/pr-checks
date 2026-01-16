@@ -134,6 +134,75 @@ describe('CLI', () => {
     });
   });
 
+  describe('printConfigSummary 출력', () => {
+    it('CLI provider는 cliTool을 출력해야 함 (model이 아님)', async () => {
+      const prChecksDir = path.join(testDir, '.pr-checks');
+      await fs.ensureDir(prChecksDir);
+      await fs.writeFile(
+        path.join(prChecksDir, 'config.yml'),
+        `checks:
+  - name: cli-review
+    trigger: /review
+    type: pr-review
+    mustRun: true
+    mustPass: false
+    provider: cli
+    cliTool: claude
+ciTrigger: /checks
+branches:
+  - main`
+      );
+
+      const logs: string[] = [];
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+        if (typeof msg === 'string') logs.push(msg);
+      });
+
+      await run({ yes: true, cwd: testDir });
+
+      consoleSpy.mockRestore();
+
+      // cli/claude 형태로 출력되어야 함 (cli/undefined가 아님)
+      const reviewLine = logs.find(l => l.includes('cli-review'));
+      expect(reviewLine).toBeDefined();
+      expect(reviewLine).toContain('cli/claude');
+      expect(reviewLine).not.toContain('undefined');
+    });
+
+    it('Bedrock provider는 model을 출력해야 함', async () => {
+      const prChecksDir = path.join(testDir, '.pr-checks');
+      await fs.ensureDir(prChecksDir);
+      await fs.writeFile(
+        path.join(prChecksDir, 'config.yml'),
+        `checks:
+  - name: ai-review
+    trigger: /review
+    type: pr-review
+    mustRun: true
+    mustPass: false
+    provider: bedrock
+    model: us.amazon.nova-micro-v1:0
+    apiKeySecret: BEDROCK_KEY
+ciTrigger: /checks
+branches:
+  - main`
+      );
+
+      const logs: string[] = [];
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+        if (typeof msg === 'string') logs.push(msg);
+      });
+
+      await run({ yes: true, cwd: testDir });
+
+      consoleSpy.mockRestore();
+
+      const reviewLine = logs.find(l => l.includes('ai-review'));
+      expect(reviewLine).toBeDefined();
+      expect(reviewLine).toContain('bedrock/us.amazon.nova-micro-v1:0');
+    });
+  });
+
   describe('연속 실행', () => {
     it('init 후 generate를 연속으로 실행할 수 있어야 함', async () => {
       // 1. init

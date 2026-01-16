@@ -136,8 +136,8 @@ function printSummary(config: Config): void {
     if (isPrTestCheck(check)) {
       console.log(`    - ${check.name} (${check.trigger}): ${check.command} [${required}${mustPass}]`);
     } else if (isPrReviewCheck(check)) {
-      const detail = check.provider === 'cli' ? check.cliTool : check.model;
-      console.log(`    - ${check.name} (${check.trigger}): ${check.provider}/${detail} [${required}${mustPass}]`);
+      const providerInfo = check.provider === 'cli' ? check.cliTool : check.model;
+      console.log(`    - ${check.name} (${check.trigger}): ${check.provider}/${providerInfo} [${required}${mustPass}]`);
     }
   }
 

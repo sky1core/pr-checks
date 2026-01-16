@@ -230,6 +230,7 @@ export function generatePrReviewJob(
   const { input } = config;
   const jobId = check.name;
   const selfHosted = input.selfHosted;
+  const diffStepId = selfHosted ? 'git-diff' : 'diff';
 
   // 실행 조건: 개별 트리거 또는 ciTrigger(required일 때만)
   const runConditions = [
@@ -339,6 +340,26 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
 
           HEAD_SHA="\${{ needs.check-trigger.outputs.head_sha }}"
           SHORT_SHA="\${HEAD_SHA:0:7}"
+
+          # Runner 환경 판별
+          if [[ "\${{ runner.name }}" == "GitHub Actions"* ]]; then
+            RUNNER_TYPE="☁️ Hosted"
+          else
+            RUNNER_TYPE="🏠 Self-hosted"
+          fi
+
+          # Diff 크기 (KB 단위로 표시)
+          DIFF_SIZE="\${{ steps.${diffStepId}.outputs.diff_size }}"
+          if [ -n "\$DIFF_SIZE" ] && [ "\$DIFF_SIZE" -gt 0 ] 2>/dev/null; then
+            if [ "\$DIFF_SIZE" -ge 1024 ]; then
+              DIFF_KB=\$(awk "BEGIN {printf \\"%.1f\\", \$DIFF_SIZE / 1024}")
+              DIFF_DISPLAY="📊 \${DIFF_KB}KB"
+            else
+              DIFF_DISPLAY="📊 \${DIFF_SIZE}B"
+            fi
+          else
+            DIFF_DISPLAY=""
+          fi
 ${check.provider === 'cli' ? `
           # CLI provider: 단순 리뷰 내용만 표시 (✅ 형식으로 접기 패턴과 일치)
           {
@@ -347,7 +368,7 @@ ${check.provider === 'cli' ? `
             echo "\${REVIEW}"
             echo ""
             echo "---"
-            echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA}"
+            echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA} | \${RUNNER_TYPE}\${DIFF_DISPLAY:+ | \$DIFF_DISPLAY}"
             echo ""
             echo "🛠️ CLI: ${check.cliTool} | ${check.trigger} 명령에 대한 응답"
           } > comment.txt` : `
@@ -376,7 +397,7 @@ ${check.provider === 'cli' ? `
             echo "\${REVIEW}"
             echo ""
             echo "---"
-            echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA}"
+            echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA} | \${RUNNER_TYPE}\${DIFF_DISPLAY:+ | \$DIFF_DISPLAY}"
             echo ""
             echo "🤖 Model: ${check.model} | ${check.trigger} 명령에 대한 응답"
             echo "</details>"
