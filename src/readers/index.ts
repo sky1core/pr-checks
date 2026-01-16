@@ -10,6 +10,8 @@ import type {
   SetupStep,
   TestFramework,
   Platform,
+  CliTool,
+  SelfHostedConfig,
 } from '../types/config.js';
 import { DEFAULT_INPUT_CONFIG, isPrTestCheck, isPrReviewCheck } from '../types/config.js';
 
@@ -118,6 +120,23 @@ function parsePlatform(value: unknown, defaultValue: Platform): Platform {
   return defaultValue;
 }
 
+function parseSelfHostedConfig(raw: unknown): SelfHostedConfig | undefined {
+  if (raw === undefined || raw === null) return undefined;
+
+  // selfHosted: true 형태
+  if (typeof raw === 'boolean') {
+    return raw ? { docker: true } : undefined;
+  }
+
+  // selfHosted: { docker: true } 형태
+  if (typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+
+  const obj = raw as Record<string, unknown>;
+  return {
+    docker: parseBoolean(obj.docker, true),
+  };
+}
+
 function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
   const type = rawCheck.type as string;
 
@@ -167,12 +186,14 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
   }
 
   if (type === 'pr-review') {
+    const provider = (rawCheck.provider as PrReviewCheck['provider']) ?? 'bedrock';
     const check: PrReviewCheck = {
       ...baseCheck,
       type: 'pr-review',
-      provider: (rawCheck.provider as PrReviewCheck['provider']) ?? 'bedrock',
-      model: parseString(rawCheck.model, ''),
-      apiKeySecret: parseString(rawCheck.apiKeySecret, ''),
+      provider,
+      model: provider === 'bedrock' ? parseString(rawCheck.model, '') : undefined,
+      apiKeySecret: provider === 'bedrock' ? parseString(rawCheck.apiKeySecret, '') : undefined,
+      cliTool: provider === 'cli' ? (rawCheck.cliTool as CliTool) : undefined,
       customRules: rawCheck.customRules as string | undefined,
     };
     return check;
@@ -197,12 +218,24 @@ function mergeWithDefaults(parsed: Record<string, unknown>): InputConfig {
     checks = structuredClone(defaults.checks);
   }
 
+  // runner 파싱: 문자열 또는 배열
+  let runner: string | string[];
+  if (parsed.runner === undefined || parsed.runner === null) {
+    runner = defaults.runner;
+  } else if (Array.isArray(parsed.runner)) {
+    runner = parsed.runner.map(String);
+  } else {
+    runner = String(parsed.runner);
+  }
+
   return {
     platform: parsePlatform(parsed.platform, defaults.platform),
+    runner,
     checks,
     ciTrigger: parseString(parsed.ciTrigger, defaults.ciTrigger),
     generateApprovalOverride: parseBoolean(parsed.generateApprovalOverride, defaults.generateApprovalOverride),
     branches: Array.isArray(parsed.branches) ? parsed.branches.map(String) : defaults.branches,
+    selfHosted: parseSelfHostedConfig(parsed.selfHosted),
   };
 }
 
@@ -260,15 +293,23 @@ function validateConfig(config: InputConfig): void {
     }
 
     if (isPrReviewCheck(check)) {
-      const validProviders = ['bedrock'];
+      const validProviders = ['bedrock', 'cli'];
       if (!validProviders.includes(check.provider)) {
         throw new Error(`checks[${i}].provider: 지원하지 않는 프로바이더입니다: ${check.provider}`);
       }
-      if (!check.model.trim()) {
-        throw new Error(`checks[${i}].model은 필수입니다.`);
+      if (check.provider === 'bedrock') {
+        if (!check.model?.trim()) {
+          throw new Error(`checks[${i}].model은 bedrock provider에서 필수입니다.`);
+        }
+        if (!check.apiKeySecret?.trim()) {
+          throw new Error(`checks[${i}].apiKeySecret은 bedrock provider에서 필수입니다.`);
+        }
       }
-      if (!check.apiKeySecret.trim()) {
-        throw new Error(`checks[${i}].apiKeySecret은 필수입니다.`);
+      if (check.provider === 'cli') {
+        const validCliTools = ['claude', 'codex', 'gemini', 'kiro'];
+        if (!check.cliTool || !validCliTools.includes(check.cliTool)) {
+          throw new Error(`checks[${i}].cliTool: cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다.`);
+        }
       }
     }
   }

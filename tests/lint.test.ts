@@ -9,6 +9,8 @@ import type { Config, PrTestCheck, PrReviewCheck } from '../src/types/config.js'
 
 const createTestConfig = (): Config => ({
   input: {
+    platform: 'github',
+    runner: 'ubuntu-latest',
     checks: [
       {
         name: 'pr-test',

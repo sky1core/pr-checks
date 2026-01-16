@@ -1,4 +1,10 @@
 import type { Config, PrTestCheck, SetupStep } from '../../types/config.js';
+import { formatRunner } from '../utils/index.js';
+import {
+  generateDockerCheckStep,
+  generateRepoCacheStep,
+  generatePrFetchStep,
+} from '../steps/index.js';
 
 /**
  * 테스트 셋업 스텝 생성 (helper)
@@ -35,38 +41,23 @@ function generateTestSetupSteps(steps?: SetupStep[]): string {
 }
 
 /**
- * 테스트 job 생성
- *
- * 역할:
- * 1. PR 브랜치 체크아웃
- * 2. 테스트 환경 셋업
- * 3. 테스트 실행
- * 4. 결과에 따른 status 설정
- * 5. 실패 시 PR 코멘트
+ * 체크아웃 스텝 생성 (selfHosted 여부에 따라 다름)
  */
-export function generatePrTestJob(check: PrTestCheck, config: Config): string {
-  const { input } = config;
-  const jobId = check.name;
+function generateCheckoutSteps(config: Config): string {
+  const { selfHosted } = config.input;
 
-  // 실행 조건: 개별 트리거 또는 ciTrigger(required일 때만)
-  const runConditions = [
-    `needs.check-trigger.outputs.trigger == '${check.trigger}'`,
-  ];
-  if (check.mustRun) {
-    runConditions.push(`needs.check-trigger.outputs.trigger == '${input.ciTrigger}'`);
+  if (selfHosted) {
+    // selfHosted: repo-cache + pr-fetch 사용
+    return `${generateRepoCacheStep(config)}
+
+${generatePrFetchStep()}
+
+      - name: Set working directory
+        run: echo "WORK_DIR=\${{ steps.repo-cache.outputs.repo_dir }}" >> \$GITHUB_ENV`;
   }
 
-  const setupSteps = generateTestSetupSteps(check.setupSteps);
-
-  return `  # ${check.name}
-  ${jobId}:
-    if: |
-      needs.check-trigger.outputs.should_continue == 'true' &&
-      (${runConditions.join(' || ')})
-    needs: [check-trigger]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Get PR branch
+  // 기본: actions/checkout 사용
+  return `      - name: Get PR branch
         id: pr-branch
         run: |
           PR_NUMBER="\${{ needs.check-trigger.outputs.pr_number }}"
@@ -79,11 +70,60 @@ export function generatePrTestJob(check: PrTestCheck, config: Config): string {
         with:
           ref: \${{ steps.pr-branch.outputs.branch }}
 
+      - name: Set working directory
+        run: echo "WORK_DIR=\${{ github.workspace }}" >> \$GITHUB_ENV`;
+}
+
+/**
+ * 테스트 job 생성
+ *
+ * 역할:
+ * 1. PR 브랜치 체크아웃
+ * 2. 테스트 환경 셋업
+ * 3. 테스트 실행
+ * 4. 결과에 따른 status 설정
+ * 5. 실패 시 PR 코멘트
+ */
+export function generatePrTestJob(check: PrTestCheck, config: Config): string {
+  const { input } = config;
+  const jobId = check.name;
+  const selfHosted = input.selfHosted;
+  const runsOn = formatRunner(input.runner);
+
+  // 실행 조건: 개별 트리거 또는 ciTrigger(required일 때만)
+  const runConditions = [
+    `needs.check-trigger.outputs.trigger == '${check.trigger}'`,
+  ];
+  if (check.mustRun) {
+    runConditions.push(`needs.check-trigger.outputs.trigger == '${input.ciTrigger}'`);
+  }
+
+  const setupSteps = generateTestSetupSteps(check.setupSteps);
+
+  // Docker 체크 스텝 (selfHosted + docker일 때)
+  const dockerStep = selfHosted?.docker
+    ? `${generateDockerCheckStep()}\n\n`
+    : '';
+
+  // 체크아웃 스텝
+  const checkoutSteps = generateCheckoutSteps(config);
+
+  return `  # ${check.name}
+  ${jobId}:
+    if: |
+      needs.check-trigger.outputs.should_continue == 'true' &&
+      (${runConditions.join(' || ')})
+    needs: [check-trigger]
+    runs-on: ${runsOn}
+    steps:
+${dockerStep}${checkoutSteps}
+
 ${setupSteps}
 
       - name: Run ${check.name}
         id: test
         shell: bash
+        working-directory: \${{ env.WORK_DIR }}
         run: |
           set +e
           ${check.command} 2>&1 | tee test_output.txt
@@ -96,6 +136,7 @@ ${setupSteps}
 
       - name: Set status and post comment
         shell: bash
+        working-directory: \${{ env.WORK_DIR }}
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           GITHUB_API_URL: \${{ github.api_url }}
@@ -111,6 +152,7 @@ ${setupSteps}
 
       - name: Collapse old comments
         shell: bash
+        working-directory: \${{ env.WORK_DIR }}
         env:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
           GITHUB_API_URL: \${{ github.api_url }}
@@ -121,9 +163,6 @@ ${setupSteps}
             "\${{ needs.check-trigger.outputs.head_sha }}"
 
       - name: Fail if tests failed
-        shell: bash
-        run: |
-          if [ "\$(cat test_result.txt)" != "true" ]; then
-            exit 1
-          fi`;
+        if: steps.test.outputs.passed != 'true'
+        run: exit 1`;
 }

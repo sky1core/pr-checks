@@ -78,3 +78,21 @@ export function buildPromptForJq(): string {
   // 최종 조립: parts + customRules 조건 + verdict + diff
   return parts.join('\\n') + '\\n' + customRulesSection + '\\n' + verdictSection + '\\n\\n## 코드 변경사항\\n```diff\\n" + $diff + "\\n```';
 }
+
+/**
+ * CLI 도구용 프롬프트 (단순 텍스트 출력, pass/fail 판정 없음)
+ */
+export const CLI_REVIEW_PROMPT = `당신은 시니어 개발자입니다. 코드 변경사항을 리뷰해주세요.
+
+## 검토 항목
+- 버그: 논리 오류, null/undefined 미처리, race condition
+- 보안: injection, 하드코딩된 비밀
+- 성능: 비효율적인 알고리즘
+
+## 위험도 등급
+- 🔴 Critical: 심각한 문제
+- 🟡 Warning: 수정 권장
+- 🟢 Info: 참고 사항
+
+문제 발견 시 파일:라인, 위험도, 설명, 수정 제안을 포함해주세요.
+문제가 없으면 간단히 "코드에 문제가 없습니다"라고 응답해주세요.`;

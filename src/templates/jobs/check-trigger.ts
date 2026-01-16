@@ -43,7 +43,9 @@ export function generateCheckTriggerJob(config: Config): string {
 
   return `  # 트리거 체크
   check-trigger:
-    if: github.event_name == 'issue_comment'
+    if: |
+      github.event_name == 'issue_comment' ||
+      (github.event_name == 'pull_request' && github.event.action == 'synchronize')
     runs-on: ubuntu-latest
     outputs:
       should_continue: \${{ steps.check.outputs.should_continue }}
@@ -54,6 +56,23 @@ export function generateCheckTriggerJob(config: Config): string {
       - name: Check trigger
         id: check
         run: |
+          # pull_request synchronize 이벤트: 푸시 시 자동 실행
+          if [ "\${{ github.event_name }}" = "pull_request" ]; then
+            # Draft PR은 자동 실행 스킵
+            if [ "\${{ github.event.pull_request.draft }}" = "true" ]; then
+              echo "Draft PR - skipping auto run"
+              echo "should_continue=false" >> \$GITHUB_OUTPUT
+              exit 0
+            fi
+
+            echo "pr_number=\${{ github.event.pull_request.number }}" >> \$GITHUB_OUTPUT
+            echo "head_sha=\${{ github.event.pull_request.head.sha }}" >> \$GITHUB_OUTPUT
+            echo "trigger=${input.ciTrigger}" >> \$GITHUB_OUTPUT
+            echo "should_continue=true" >> \$GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # issue_comment 이벤트: 코멘트로 수동 실행
           # PR 코멘트인지 확인
           if [ -z "\${{ github.event.issue.pull_request }}" ]; then
             echo "should_continue=false" >> \$GITHUB_OUTPUT
@@ -62,7 +81,6 @@ export function generateCheckTriggerJob(config: Config): string {
 
           # 권한 확인 (write 이상 권한 필요)
           USER="\${{ github.event.comment.user.login }}"
-          REPO_OWNER="\${{ github.repository_owner }}"
 
 ${permissionCheck}
 

@@ -41,15 +41,15 @@ done`;
 }
 
 /**
- * 테스트 실패 이전 댓글 접기 스크립트 생성
- * 전체 구조를 <details>로 감싸기
+ * 테스트 이전 댓글 접기 스크립트 생성
+ * 성공/실패 모두 접기 (최신 것만 펼침)
  * @param checkName 체크 이름 (코멘트 식별용)
  */
 export function generateCollapsePrTestCommentsScript(checkName: string): string {
-  return `# 현재 커밋 SHA가 아닌 이전 테스트 실패 댓글만 접기
+  return `# 현재 커밋 SHA가 아닌 이전 테스트 댓글 접기 (성공/실패 모두)
 COMMENTS=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
   "\${{ github.api_url }}/repos/\${{ github.repository }}/issues/\${PR_NUMBER}/comments" \\
-  | jq '[.[] | select(.body | startswith("${COMMENT_MARKERS.prTestFail(checkName)}")) | select(.body | contains("<details>") | not) | {id, body}]')
+  | jq '[.[] | select(.body | test("${COMMENT_MARKERS.prTestPattern(checkName)}")) | select(.body | contains("<details>") | not) | {id, body}]')
 
 echo "\$COMMENTS" | jq -c '.[]' | while read -r comment; do
   COMMENT_ID=\$(echo "\$comment" | jq -r '.id')

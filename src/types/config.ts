@@ -5,14 +5,28 @@ export type Platform = 'github' | 'gitea';
 
 /**
  * AI 프로바이더 타입
- * TODO: openai, anthropic 등 추가 예정
  */
-export type AiProvider = 'bedrock';
+export type AiProvider = 'bedrock' | 'cli';
+
+/**
+ * CLI 도구 타입
+ */
+export type CliTool = 'claude' | 'codex' | 'gemini' | 'kiro';
 
 /**
  * 테스트 프레임워크 타입 (셋업 스텝 자동 생성용)
  */
 export type TestFramework = 'node' | 'python' | 'go' | 'rust' | 'custom';
+
+/**
+ * Self-hosted runner 전용 설정
+ * - 블록이 있으면 활성화 (repo-cache, git-diff 자동 사용)
+ * - docker: true면 Docker Desktop 자동 시작 (macOS)
+ */
+export interface SelfHostedConfig {
+  /** Docker Desktop 자동 시작 (macOS용) */
+  docker?: boolean;
+}
 
 /**
  * 테스트 셋업 스텝
@@ -65,10 +79,12 @@ export interface PrReviewCheck extends BaseCheck {
   type: 'pr-review';
   /** AI 프로바이더 */
   provider: AiProvider;
-  /** AI 모델 ID */
-  model: string;
-  /** GitHub Secret 이름 */
-  apiKeySecret: string;
+  /** AI 모델 ID (bedrock용) */
+  model?: string;
+  /** GitHub Secret 이름 (bedrock용) */
+  apiKeySecret?: string;
+  /** CLI 도구 (cli provider용) */
+  cliTool?: CliTool;
   /** 프로젝트별 추가 리뷰 규칙 */
   customRules?: string;
 }
@@ -84,6 +100,8 @@ export type Check = PrTestCheck | PrReviewCheck;
 export interface InputConfig {
   /** 플랫폼 (github 또는 gitea, 기본값: github) */
   platform: Platform;
+  /** Runner 레이블 (기본값: ubuntu-latest, self-hosted 사용 시 배열로 지정) */
+  runner: string | string[];
   /** 체크 목록 */
   checks: Check[];
   /** 전체 실행 명령어 (mustRun: true인 체크만 실행) */
@@ -92,6 +110,8 @@ export interface InputConfig {
   generateApprovalOverride: boolean;
   /** 대상 브랜치 목록 */
   branches: string[];
+  /** Self-hosted runner 설정 */
+  selfHosted?: SelfHostedConfig;
 }
 
 /**
@@ -120,6 +140,7 @@ export function isPrReviewCheck(check: Check): check is PrReviewCheck {
  */
 export const DEFAULT_INPUT_CONFIG: InputConfig = {
   platform: 'github',
+  runner: 'ubuntu-latest',
   checks: [
     {
       name: 'pr-test',

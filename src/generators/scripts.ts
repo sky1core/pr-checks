@@ -1,4 +1,4 @@
-import { promises as fs } from 'fs';
+import fs from 'fs-extra';
 import path from 'path';
 import type { Config, PrTestCheck } from '../types/config.js';
 import { STATUS_MESSAGES } from '../templates/constants/messages.js';
@@ -95,8 +95,12 @@ echo "Done."
 
 /**
  * collapse-comments.sh 스크립트 생성
+ * 성공/실패 모두 접기 (최신 것만 펼침)
  */
-function generateCollapseCommentsScript(checkName: string, markerPrefix: string): string {
+function generateCollapseCommentsScript(checkName: string): string {
+  // jq test용 정규식 패턴 (성공/실패 모두 매칭)
+  const markerPattern = `^## [✅❌] ${checkName}`;
+
   return `#!/bin/bash
 # Collapse Old Comments Script
 # Usage: bash collapse-comments.sh <pr_number> <head_sha>
@@ -107,12 +111,11 @@ set +e
 PR_NUMBER="$1"
 HEAD_SHA="$2"
 SHORT_SHA="\${HEAD_SHA:0:7}"
-MARKER_PREFIX="${markerPrefix}"
 
-# Get comments and collapse old ones
+# Get comments and collapse old ones (성공/실패 모두)
 COMMENTS=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \\
   "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \\
-  | jq "[.[] | select(.body | startswith(\\"$MARKER_PREFIX\\")) | select(.body | contains(\\"<details>\\") | not) | {id, body}]")
+  | jq "[.[] | select(.body | test(\\"${markerPattern}\\")) | select(.body | contains(\\"<details>\\") | not) | {id, body}]")
 
 echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
   COMMENT_ID=$(echo "$comment" | jq -r '.id')
@@ -144,7 +147,7 @@ done
  */
 export async function generateScriptFiles(cwd: string, config: Config): Promise<string[]> {
   const scriptsDir = path.join(cwd, '.pr-checks', 'scripts');
-  await fs.mkdir(scriptsDir, { recursive: true });
+  await fs.ensureDir(scriptsDir);
 
   const files: string[] = [];
 
@@ -159,7 +162,7 @@ export async function generateScriptFiles(cwd: string, config: Config): Promise<
       files.push(`.pr-checks/scripts/${check.name}-report.sh`);
 
       // collapse-comments.sh
-      const collapseScript = generateCollapseCommentsScript(check.name, `## ❌ ${check.name}`);
+      const collapseScript = generateCollapseCommentsScript(check.name);
       const collapsePath = path.join(scriptsDir, `${check.name}-collapse.sh`);
       await fs.writeFile(collapsePath, collapseScript, { mode: 0o755 });
       files.push(`.pr-checks/scripts/${check.name}-collapse.sh`);

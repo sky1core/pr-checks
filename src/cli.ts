@@ -136,7 +136,8 @@ function printSummary(config: Config): void {
     if (isPrTestCheck(check)) {
       console.log(`    - ${check.name} (${check.trigger}): ${check.command} [${required}${mustPass}]`);
     } else if (isPrReviewCheck(check)) {
-      console.log(`    - ${check.name} (${check.trigger}): ${check.provider}/${check.model} [${required}${mustPass}]`);
+      const detail = check.provider === 'cli' ? check.cliTool : check.model;
+      console.log(`    - ${check.name} (${check.trigger}): ${check.provider}/${detail} [${required}${mustPass}]`);
     }
   }
 
@@ -151,7 +152,7 @@ function printNextSteps(config: Config): void {
   // AI 리뷰에 사용되는 시크릿 수집
   const secrets = new Set<string>();
   for (const check of input.checks) {
-    if (isPrReviewCheck(check)) {
+    if (isPrReviewCheck(check) && check.apiKeySecret) {
       secrets.add(check.apiKeySecret);
     }
   }

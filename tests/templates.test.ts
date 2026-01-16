@@ -177,6 +177,14 @@ describe('pr-checks.yml 생성', () => {
       expect(parsed.on.pull_request.types).toContain('opened');
     });
 
+    it('pull_request synchronize 트리거가 있어야 함 (푸시 시 자동 실행)', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      expect(parsed.on.pull_request.types).toContain('synchronize');
+    });
+
     it('issue_comment 트리거가 있어야 함', () => {
       const config = createTestConfig();
       const yaml = generatePrChecksWorkflow(config);
@@ -184,6 +192,22 @@ describe('pr-checks.yml 생성', () => {
 
       expect(parsed.on.issue_comment).toBeDefined();
       expect(parsed.on.issue_comment.types).toContain('created');
+    });
+
+    it('check-trigger job이 pull_request synchronize 이벤트를 처리해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain("github.event_name == 'pull_request'");
+      expect(yaml).toContain("github.event.action == 'synchronize'");
+    });
+
+    it('Draft PR은 자동 실행을 스킵해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('github.event.pull_request.draft');
+      expect(yaml).toContain('Draft PR - skipping auto run');
     });
 
   });
@@ -284,6 +308,22 @@ describe('job 조건문 검증', () => {
 
       const jobIf = parsed.jobs['pr-test'].if;
       expect(jobIf).toContain("needs.check-trigger.outputs.should_continue == 'true'");
+    });
+
+    // 회귀 테스트: test_result.txt 파일 읽기 버그
+    it('테스트 실패 판정은 step output 조건을 사용해야 함 (test_result.txt 사용 금지)', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prTestSteps = parsed.jobs['pr-test'].steps;
+      const failStep = prTestSteps.find((s: any) => s.name === 'Fail if tests failed');
+
+      expect(failStep).toBeDefined();
+      // step output 조건을 사용해야 함
+      expect(failStep.if).toBe("steps.test.outputs.passed != 'true'");
+      // test_result.txt 파일을 읽는 코드가 없어야 함
+      expect(yaml).not.toContain('test_result.txt');
     });
   });
 
@@ -847,5 +887,387 @@ describe('트리거 파싱 로직', () => {
   it('트리거가 아닌 텍스트', () => {
     expect(extractFirstWord('hello world')).toBe('hello');
     expect(extractFirstWord('LGTM')).toBe('LGTM');
+  });
+});
+
+describe('CLI provider 지원', () => {
+  const createCliConfig = (cliTool: 'claude' | 'codex' | 'gemini' | 'kiro'): Config => ({
+    input: {
+      platform: 'github',
+      runner: ['self-hosted', 'macOS', 'ARM64'],
+      checks: [
+        {
+          name: 'cli-review',
+          trigger: '/review',
+          type: 'pr-review',
+          mustRun: true,
+          mustPass: false,
+          provider: 'cli',
+          cliTool,
+        } as PrReviewCheck,
+      ],
+      ciTrigger: '/checks',
+      generateApprovalOverride: false,
+      branches: ['main'],
+    },
+  });
+
+  describe('CLI 도구별 명령어 생성', () => {
+    it('claude CLI 명령어가 올바르게 생성되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('claude -p');
+      expect(yaml).toContain('Run AI Review (claude)');
+    });
+
+    it('codex CLI 명령어가 올바르게 생성되어야 함', () => {
+      const config = createCliConfig('codex');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('codex exec');
+      expect(yaml).toContain('Run AI Review (codex)');
+    });
+
+    it('gemini CLI 명령어가 올바르게 생성되어야 함', () => {
+      const config = createCliConfig('gemini');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('gemini -p');
+      expect(yaml).toContain('Run AI Review (gemini)');
+    });
+
+    it('kiro CLI 명령어가 올바르게 생성되어야 함', () => {
+      const config = createCliConfig('kiro');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('kiro-cli chat --no-interactive');
+      expect(yaml).toContain('Run AI Review (kiro)');
+      // kiro는 ANSI 코드 제거 필터가 있어야 함
+      expect(yaml).toContain('perl -pe');
+    });
+  });
+
+  describe('diff 헤더 설정', () => {
+    it('GitHub API diff 요청 시 Accept 헤더가 포함되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Accept: application/vnd.github.diff');
+      // .diff URL 확장자를 사용하면 안 됨
+      expect(yaml).not.toContain('/pulls/$PR_NUMBER.diff');
+    });
+  });
+
+  describe('CLI 리뷰 스텝 구조', () => {
+    it('DIFF_CONTENT 변수가 설정되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('DIFF_CONTENT=$(cat diff.txt)');
+    });
+
+    it('프롬프트에 diff 내용이 포함되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('=== DIFF ===');
+      expect(yaml).toContain('=== END DIFF ===');
+    });
+
+    it('CLI provider는 항상 success 상태를 반환해야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('result=success');
+      // CLI는 pass/fail 판정 없이 텍스트만 반환
+      expect(yaml).toContain('# CLI provider는 항상 success');
+    });
+
+    it('CLI 리뷰 프롬프트가 포함되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('시니어 개발자');
+      expect(yaml).toContain('코드 변경사항을 리뷰');
+    });
+
+    it('CLI provider 댓글이 접기 패턴과 일치해야 함 (회귀 테스트)', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      // CLI provider 댓글은 ## ✅ 형식으로 시작해야 접기 패턴(^## [✅❌])과 일치
+      expect(yaml).toContain('echo "## ✅ cli-review"');
+      // 🤖 형식은 접기 패턴과 불일치하므로 사용하면 안 됨
+      expect(yaml).not.toContain('echo "## 🤖');
+    });
+  });
+
+  describe('runner 설정', () => {
+    it('self-hosted runner 배열이 올바르게 포맷되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      expect(parsed.jobs['cli-review']['runs-on']).toEqual(['self-hosted', 'macOS', 'ARM64']);
+    });
+
+    it('문자열 runner도 처리되어야 함', () => {
+      const config = createCliConfig('claude');
+      config.input.runner = 'ubuntu-latest';
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      expect(parsed.jobs['cli-review']['runs-on']).toBe('ubuntu-latest');
+    });
+  });
+
+  describe('코멘트 포맷', () => {
+    it('CLI 도구 정보가 코멘트에 포함되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('CLI: claude');
+    });
+  });
+
+  describe('YAML 유효성', () => {
+    it('CLI provider 설정으로 유효한 YAML이 생성되어야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(() => parseYaml(yaml)).not.toThrow();
+    });
+
+    it('모든 CLI 도구에서 유효한 YAML이 생성되어야 함', () => {
+      const tools: Array<'claude' | 'codex' | 'gemini' | 'kiro'> = ['claude', 'codex', 'gemini', 'kiro'];
+
+      for (const tool of tools) {
+        const config = createCliConfig(tool);
+        const yaml = generatePrChecksWorkflow(config);
+
+        expect(() => parseYaml(yaml)).not.toThrow();
+      }
+    });
+  });
+});
+
+describe('selfHosted 지원', () => {
+  const createSelfHostedConfig = (): Config => ({
+    input: {
+      platform: 'github',
+      runner: ['self-hosted', 'macOS', 'ARM64'],
+      selfHosted: {
+        docker: true,
+      },
+      checks: [
+        {
+          name: 'pr-test',
+          trigger: '/test',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          framework: 'node',
+          setupSteps: [
+            { name: 'Setup Node.js', uses: 'actions/setup-node@v4', with: { 'node-version': '20' } },
+          ],
+        } as PrTestCheck,
+        {
+          name: 'pr-review',
+          trigger: '/review',
+          type: 'pr-review',
+          mustRun: true,
+          mustPass: false,
+          provider: 'cli',
+          cliTool: 'claude',
+        } as PrReviewCheck,
+      ],
+      ciTrigger: '/checks',
+      generateApprovalOverride: false,
+      branches: ['main'],
+    },
+  });
+
+  describe('Docker 체크 스텝', () => {
+    it('pr-test에 Docker 체크 스텝이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Ensure Docker is running');
+      expect(yaml).toContain('open -a Docker');
+      expect(yaml).toContain("if: runner.os == 'macOS'");
+    });
+
+    it('pr-review에 Docker 체크 스텝이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prReviewSteps = parsed.jobs['pr-review']?.steps || [];
+      const dockerStep = prReviewSteps.find((s: any) => s.name === 'Ensure Docker is running');
+      expect(dockerStep).toBeDefined();
+    });
+
+    it('docker: false면 Docker 체크 스텝이 없어야 함', () => {
+      const config = createSelfHostedConfig();
+      config.input.selfHosted!.docker = false;
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).not.toContain('Ensure Docker is running');
+    });
+  });
+
+  describe('저장소 캐싱 (repo-cache)', () => {
+    it('Clone or update repository 스텝이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Clone or update repository');
+      expect(yaml).toContain('git fetch --all --prune');
+      expect(yaml).toContain('git clone');
+    });
+
+    it('REPO_DIR 출력이 설정되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('repo_dir=');
+      expect(yaml).toContain('GITHUB_OUTPUT');
+    });
+  });
+
+  describe('PR fetch', () => {
+    it('Fetch PR branch 스텝이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Fetch PR branch');
+      expect(yaml).toContain('git fetch origin pull/');
+      expect(yaml).toContain('git checkout pr-');
+    });
+
+    // 회귀 테스트: 기존 PR 브랜치 체크아웃 상태에서 fetch 실패 버그
+    it('기존 PR 브랜치 삭제 후 fetch해야 함 (재fetch 버그 방지)', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      // 기존 브랜치가 체크아웃된 경우 detach
+      expect(yaml).toContain('git rev-parse --abbrev-ref HEAD');
+      expect(yaml).toContain('git checkout --detach');
+      // 기존 PR 브랜치 삭제
+      expect(yaml).toContain('git branch -D pr-$PR_NUMBER');
+    });
+
+    it('pr_branch 출력이 설정되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('pr_branch=pr-');
+    });
+  });
+
+  describe('git diff', () => {
+    it('useGitDiff가 true면 git diff 스텝이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Generate diff using git');
+      expect(yaml).toContain('git diff origin/');
+    });
+
+    it('useGitDiff가 true면 GitHub API diff가 사용되지 않아야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // pr-review job에서 GitHub API diff 스텝 확인
+      const prReviewSteps = parsed.jobs['pr-review']?.steps || [];
+      const githubApiDiffStep = prReviewSteps.find((s: any) => s.name === 'Get PR diff');
+      expect(githubApiDiffStep).toBeUndefined();
+    });
+
+    it('base branch를 가져오는 로직이 포함되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('BASE_BRANCH=');
+      expect(yaml).toContain('.base.ref');
+    });
+  });
+
+  describe('selfHosted 없을 때 기본 동작', () => {
+    it('selfHosted가 없으면 GitHub API diff가 사용되어야 함', () => {
+      const config = createSelfHostedConfig();
+      delete config.input.selfHosted;
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('Get PR diff');
+      expect(yaml).toContain('Accept: application/vnd.github.diff');
+    });
+
+    it('selfHosted가 없으면 actions/checkout이 사용되어야 함', () => {
+      const config = createSelfHostedConfig();
+      delete config.input.selfHosted;
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('actions/checkout@v4');
+    });
+
+    it('selfHosted가 없으면 Docker 체크 스텝이 없어야 함', () => {
+      const config = createSelfHostedConfig();
+      delete config.input.selfHosted;
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).not.toContain('Ensure Docker is running');
+    });
+  });
+
+  describe('pr-test job 통합', () => {
+    it('pr-test에서 repo-cache와 pr-fetch가 사용되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prTestSteps = parsed.jobs['pr-test']?.steps || [];
+      const repoCacheStep = prTestSteps.find((s: any) => s.name === 'Clone or update repository');
+      const prFetchStep = prTestSteps.find((s: any) => s.name === 'Fetch PR branch');
+
+      expect(repoCacheStep).toBeDefined();
+      expect(prFetchStep).toBeDefined();
+    });
+
+    it('pr-test에서 WORK_DIR이 설정되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('WORK_DIR=');
+      expect(yaml).toContain('steps.repo-cache.outputs.repo_dir');
+    });
+
+  });
+
+  describe('YAML 유효성', () => {
+    it('selfHosted 설정으로 유효한 YAML이 생성되어야 함', () => {
+      const config = createSelfHostedConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(() => parseYaml(yaml)).not.toThrow();
+    });
+
+    it('다양한 selfHosted 조합에서 유효한 YAML이 생성되어야 함', () => {
+      const variations: Array<{ docker: boolean }> = [
+        { docker: true },
+        { docker: false },
+      ];
+
+      for (const selfHosted of variations) {
+        const config = createSelfHostedConfig();
+        config.input.selfHosted = selfHosted;
+        const yaml = generatePrChecksWorkflow(config);
+
+        expect(() => parseYaml(yaml)).not.toThrow();
+      }
+    });
   });
 });

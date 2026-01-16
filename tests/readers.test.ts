@@ -464,7 +464,7 @@ describe('readers', () => {
           })
         );
 
-        await expect(readConfig(testDir)).rejects.toThrow('model은 필수입니다');
+        await expect(readConfig(testDir)).rejects.toThrow('model은 bedrock provider에서 필수입니다');
       });
 
       it('빈 branches는 에러를 던져야 함', async () => {
@@ -577,6 +577,255 @@ describe('readers', () => {
         );
 
         await expect(readConfig(testDir)).rejects.toThrow('command는 필수입니다');
+      });
+
+      it('cli provider에 cliTool이 없으면 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다');
+      });
+
+      it('cli provider에 유효하지 않은 cliTool이면 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'invalid-tool',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다');
+      });
+
+      it('cli provider에 유효한 cliTool이면 성공해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'claude',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.checks[0]).toMatchObject({
+          provider: 'cli',
+          cliTool: 'claude',
+        });
+      });
+    });
+
+    describe('selfHosted 설정 파싱', () => {
+      it('selfHosted가 없으면 undefined여야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted).toBeUndefined();
+      });
+
+      it('selfHosted: true면 docker: true로 파싱해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            selfHosted: true,
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted).toBeDefined();
+        expect(config.input.selfHosted?.docker).toBe(true);
+      });
+
+      it('selfHosted: false면 undefined여야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            selfHosted: false,
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted).toBeUndefined();
+      });
+
+      it('selfHosted.docker: true가 파싱되어야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            selfHosted: {
+              docker: true,
+            },
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted?.docker).toBe(true);
+      });
+
+      it('selfHosted.docker: false가 파싱되어야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            selfHosted: {
+              docker: false,
+            },
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted?.docker).toBe(false);
+      });
+
+      it('selfHosted 기본값 docker: true가 적용되어야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            selfHosted: {},
+            checks: [
+              {
+                name: 'pr-test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect(config.input.selfHosted?.docker).toBe(true);
       });
     });
   });

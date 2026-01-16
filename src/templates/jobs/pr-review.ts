@@ -1,9 +1,15 @@
-import type { Config, PrReviewCheck, PrTestCheck } from '../../types/config.js';
+import type { Config, PrReviewCheck, PrTestCheck, CliTool } from '../../types/config.js';
 import { STATUS_MESSAGES } from '../constants/messages.js';
 import { COMMENT_MARKERS } from '../constants/comments.js';
-import { buildPromptForJq } from '../constants/prompts.js';
+import { buildPromptForJq, CLI_REVIEW_PROMPT } from '../constants/prompts.js';
 import { generateCollapsePrReviewCommentsScript } from '../scripts/collapse-comments.js';
-import { indent } from '../utils/index.js';
+import { indent, formatRunner } from '../utils/index.js';
+import {
+  generateDockerCheckStep,
+  generateRepoCacheStep,
+  generatePrFetchStep,
+  generateGitDiffStep,
+} from '../steps/index.js';
 
 /**
  * customRules를 bash 문자열에서 안전하게 사용하기 위해 이스케이프
@@ -111,14 +117,100 @@ function generateBedrockReviewStep(check: PrReviewCheck): string {
 }
 
 /**
+ * CLI 도구별 명령어 생성
+ */
+function getCliCommand(cliTool: CliTool): string {
+  switch (cliTool) {
+    case 'claude':
+      return 'claude -p';
+    case 'codex':
+      return 'codex exec';
+    case 'gemini':
+      return 'gemini -p';
+    case 'kiro':
+      return 'kiro-cli chat --no-interactive';
+    default:
+      throw new Error(`지원하지 않는 CLI 도구입니다: ${cliTool}`);
+  }
+}
+
+/**
+ * CLI AI 리뷰 스텝 생성
+ * - pass/fail 판정 없이 텍스트 결과만
+ * - status는 항상 success
+ */
+function generateCliReviewStep(check: PrReviewCheck): string {
+  const cliTool = check.cliTool!;
+  const cliCommand = getCliCommand(cliTool);
+  const escapedCustomRules = escapeForBashString(check.customRules || '');
+
+  // Kiro는 ANSI 코드 제거 필요
+  const postProcess = cliTool === 'kiro'
+    ? ` 2>&1 | perl -pe 's/\\e\\[[0-9;]*m//g'`
+    : '';
+
+  // 프롬프트를 한 줄로 이스케이프 (bash $'...' 문법용)
+  const promptOneLine = CLI_REVIEW_PROMPT
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\n/g, '\\n');
+
+  return `      - name: Run AI Review (${cliTool})
+        id: ai-check
+        run: |
+          echo "🤖 AI 코드 리뷰 실행 중 (${cliTool})..."
+
+          DIFF_CONTENT=\$(cat diff.txt)
+          CUSTOM_RULES="${escapedCustomRules}"
+
+          # CLI로 리뷰 실행
+          PROMPT=\$'${promptOneLine}\\n\\n'\$CUSTOM_RULES\$'\\n\\n=== DIFF ===\\n'\$DIFF_CONTENT\$'\\n=== END DIFF ==='
+
+          echo "\$PROMPT" | ${cliCommand}${postProcess} > review.txt || true
+
+          # CLI는 항상 success로 처리 (텍스트 결과만 보여줌)
+          echo "result=success" >> \$GITHUB_OUTPUT`;
+}
+
+/**
  * AI 리뷰 스텝 생성 (provider에 따라 다른 구현)
  */
 function generateReviewStep(check: PrReviewCheck): string {
   if (check.provider === 'bedrock') {
     return generateBedrockReviewStep(check);
   }
+  if (check.provider === 'cli') {
+    return generateCliReviewStep(check);
+  }
 
   throw new Error(`지원하지 않는 AI provider입니다: ${check.provider}`);
+}
+
+/**
+ * Diff 가져오기 스텝 생성 (selfHosted 여부에 따라 다름)
+ */
+function generateDiffSteps(config: Config): string {
+  const { selfHosted } = config.input;
+
+  if (selfHosted) {
+    // selfHosted: repo-cache + pr-fetch + git-diff 사용
+    return `${generateRepoCacheStep(config)}
+
+${generatePrFetchStep()}
+
+${generateGitDiffStep(config)}`;
+  }
+
+  // 기본: GitHub API diff
+  return `      - name: Get PR diff
+        id: diff
+        run: |
+          PR_NUMBER="\${{ needs.check-trigger.outputs.pr_number }}"
+          curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            -H "Accept: application/vnd.github.diff" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER" > diff.txt
+          DIFF_SIZE=\$(wc -c < diff.txt)
+          echo "diff_size=\$DIFF_SIZE" >> \$GITHUB_OUTPUT`;
 }
 
 /**
@@ -137,6 +229,7 @@ export function generatePrReviewJob(
 ): string {
   const { input } = config;
   const jobId = check.name;
+  const selfHosted = input.selfHosted;
 
   // 실행 조건: 개별 트리거 또는 ciTrigger(required일 때만)
   const runConditions = [
@@ -162,6 +255,16 @@ export function generatePrReviewJob(
       (needs.check-trigger.outputs.trigger != '${input.ciTrigger}' || (${prTestConditions.join(' && ')})) &&`;
   }
 
+  const runsOn = formatRunner(input.runner);
+
+  // Docker 체크 스텝 (selfHosted + docker일 때)
+  const dockerStep = selfHosted?.docker
+    ? `${generateDockerCheckStep()}\n\n`
+    : '';
+
+  // Diff 가져오기 스텝
+  const diffSteps = generateDiffSteps(config);
+
   return `  # ${check.name}
   ${jobId}:
     if: |
@@ -169,21 +272,14 @@ export function generatePrReviewJob(
       needs.check-trigger.outputs.should_continue == 'true' &&${prTestSuccessCondition}
       (${runConditions.join(' || ')})
     needs: [${dependencies.join(', ')}]
-    runs-on: ubuntu-latest
+    runs-on: ${runsOn}
     permissions:
       contents: read
       pull-requests: write
       statuses: write
 
     steps:
-      - name: Get PR diff
-        id: diff
-        run: |
-          PR_NUMBER="\${{ needs.check-trigger.outputs.pr_number }}"
-          curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER.diff" > diff.txt
-          DIFF_SIZE=\$(wc -c < diff.txt)
-          echo "diff_size=\$DIFF_SIZE" >> \$GITHUB_OUTPUT
+${dockerStep}${diffSteps}
 
       - name: Set pending status
         run: |
@@ -198,14 +294,17 @@ ${generateReviewStep(check)}
       - name: Set final status
         run: |
           HEAD_SHA="\${{ needs.check-trigger.outputs.head_sha }}"
-
+${check.provider === 'cli' ? `
+          # CLI provider는 항상 success
+          STATE="success"
+          DESC="${STATUS_MESSAGES.success.passed}"` : `
           if [ "\${{ steps.ai-check.outputs.result }}" = "pass" ]; then
             STATE="success"
             DESC="${STATUS_MESSAGES.success.passed}"
           else
             STATE="failure"
             DESC="${STATUS_MESSAGES.failure.failed}"
-          fi
+          fi`}
 
           curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
             -H "Content-Type: application/json" \\
@@ -222,15 +321,12 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
 
       - name: Post PR comment
         run: |
-          RESULT="\${{ steps.ai-check.outputs.result }}"
           REVIEW=\$(cat review.txt)
 
           # GitHub uses run_id in URL, Gitea uses run_number
-          # Note: Gitea's github.run_number incorrectly returns run_id, so we query API
           if [[ "\${{ github.server_url }}" == *"github.com"* ]]; then
             RUN_URL="\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}"
           else
-            # Gitea: Query API to get correct run_number from run_id
             ACTUAL_RUN_NUMBER=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
               "\${{ github.api_url }}/repos/\${{ github.repository }}/actions/runs/\${{ github.run_id }}" \\
               | jq -r '.run_number // empty' 2>/dev/null)
@@ -240,6 +336,22 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
               RUN_URL="\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}"
             fi
           fi
+
+          HEAD_SHA="\${{ needs.check-trigger.outputs.head_sha }}"
+          SHORT_SHA="\${HEAD_SHA:0:7}"
+${check.provider === 'cli' ? `
+          # CLI provider: 단순 리뷰 내용만 표시 (✅ 형식으로 접기 패턴과 일치)
+          {
+            echo "## ✅ ${check.name}"
+            echo ""
+            echo "\${REVIEW}"
+            echo ""
+            echo "---"
+            echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA}"
+            echo ""
+            echo "🛠️ CLI: ${check.cliTool} | ${check.trigger} 명령에 대한 응답"
+          } > comment.txt` : `
+          RESULT="\${{ steps.ai-check.outputs.result }}"
 
           # 위험도별 개수 세기
           CRITICAL=\$(echo "\$REVIEW" | grep -c "🔴" || true)
@@ -254,9 +366,6 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
             STATUS="FAIL"
           fi
 
-          HEAD_SHA="\${{ needs.check-trigger.outputs.head_sha }}"
-          SHORT_SHA="\${HEAD_SHA:0:7}"
-
           {
             echo "## \${EMOJI} ${check.name} - \${STATUS}"
             echo "🔴 \${CRITICAL} | 🟡 \${WARNING} | 🟢 \${INFO}"
@@ -269,9 +378,9 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
             echo "---"
             echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA}"
             echo ""
-            echo "🤖 Model: \\\`${check.model}\\\` | \\\`${check.trigger}\\\` 명령에 대한 응답"
+            echo "🤖 Model: ${check.model} | ${check.trigger} 명령에 대한 응답"
             echo "</details>"
-          } > comment.txt
+          } > comment.txt`}
 
           BODY=\$(jq -Rs '.' comment.txt)
           curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\

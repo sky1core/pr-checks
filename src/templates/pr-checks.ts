@@ -80,12 +80,12 @@ export function generatePrChecksWorkflow(config: Config): string {
   return `name: PR Checks
 
 on:
-  # PR 생성 시 가이드 코멘트
+  # PR 생성 시 가이드 코멘트, 푸시 시 자동 실행
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [${input.branches.join(', ')}]
 
-  # PR 코멘트로 실행
+  # PR 코멘트로 수동 실행
   issue_comment:
     types: [created]
 

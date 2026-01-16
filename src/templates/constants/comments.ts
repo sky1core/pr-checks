@@ -16,6 +16,12 @@ export const COMMENT_MARKERS = {
   prTestFail: (checkName: string) => `## ❌ ${checkName}`,
 
   /**
+   * 테스트 댓글 시작 패턴 (jq test용 정규식, 성공/실패 모두 매칭)
+   * @param checkName 체크 이름
+   */
+  prTestPattern: (checkName: string) => `^## [✅❌] ${checkName}`,
+
+  /**
    * 리뷰 댓글 시작 패턴 (jq test용 정규식)
    * @param checkName 체크 이름
    */
