@@ -151,12 +151,12 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
     throw new Error(`checks[${index}].name은 필수입니다.`);
   }
 
-  // name 패턴 검증: GitHub Actions job id로 사용되므로 안전한 문자만 허용
-  const namePattern = /^[a-z0-9][a-z0-9_-]*$/;
+  // name 패턴 검증: bash 변수명으로도 사용되므로 소문자로 시작해야 함
+  const namePattern = /^[a-z][a-z0-9_-]*$/;
   if (!namePattern.test(name.trim())) {
     throw new Error(
       `checks[${index}].name: '${name}'은 유효하지 않습니다. ` +
-        `소문자, 숫자, 하이픈, 언더스코어만 사용하고 소문자나 숫자로 시작해야 합니다.`
+        `소문자로 시작하고, 소문자/숫자/하이픈/언더스코어만 사용해야 합니다.`
     );
   }
 
@@ -196,6 +196,7 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
       model: provider === 'bedrock' ? parseString(rawCheck.model, '') : undefined,
       apiKeySecret: provider === 'bedrock' ? parseString(rawCheck.apiKeySecret, '') : undefined,
       cliTool: provider === 'cli' ? (rawCheck.cliTool as CliTool) : undefined,
+      cliCommand: provider === 'cli' ? (parseString(rawCheck.cliCommand, '').trim() || undefined) : undefined,
       customRules: rawCheck.customRules as string | undefined,
     };
     return check;
@@ -308,9 +309,12 @@ function validateConfig(config: InputConfig): void {
         }
       }
       if (check.provider === 'cli') {
-        const validCliTools = ['claude', 'codex', 'gemini', 'kiro'];
-        if (!check.cliTool || !validCliTools.includes(check.cliTool)) {
-          throw new Error(`checks[${i}].cliTool: cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다.`);
+        // cliCommand가 있으면 cliTool 불필요
+        if (!check.cliCommand) {
+          const validCliTools = ['claude', 'codex', 'gemini', 'kiro'];
+          if (!check.cliTool || !validCliTools.includes(check.cliTool)) {
+            throw new Error(`checks[${i}].cliTool: cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정하거나 cliCommand를 사용해야 합니다.`);
+          }
         }
       }
     }

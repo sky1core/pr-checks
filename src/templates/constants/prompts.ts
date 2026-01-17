@@ -43,9 +43,9 @@ export const AI_REVIEW_PROMPT = {
 
   /** 판정 기준 */
   verdictRules: `## 판정 기준
-- 🔴 Critical 있으면 → fail
-- 🟡 Warning 있으면 → fail
-- 🟢 Info만 있거나 문제 없음 → pass`,
+- 🔴 Critical 있으면 → critical (머지 차단)
+- 🟡 Warning 있으면 (Critical 없음) → warning (머지 가능, 확인 필요)
+- 🟢 Info만 있거나 문제 없음 → ok`,
 } as const;
 
 /**
@@ -95,4 +95,10 @@ export const CLI_REVIEW_PROMPT = `당신은 시니어 개발자입니다. 코드
 - 🟢 Info: 참고 사항
 
 문제 발견 시 파일:라인, 위험도, 설명, 수정 제안을 포함해주세요.
-문제가 없으면 간단히 "코드에 문제가 없습니다"라고 응답해주세요.`;
+문제가 없으면 간단히 "코드에 문제가 없습니다"라고 응답해주세요.
+
+## 최종 판정
+리뷰 마지막에 반드시 다음 중 하나를 출력하세요:
+- 🔴 Critical 있음: <<<VERDICT:CRITICAL>>>
+- 🔴 없고 🟡 Warning 있음: <<<VERDICT:WARNING>>>
+- 둘 다 없음: <<<VERDICT:OK>>>`;

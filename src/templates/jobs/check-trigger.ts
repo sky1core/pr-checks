@@ -52,6 +52,8 @@ export function generateCheckTriggerJob(config: Config): string {
       pr_number: \${{ steps.check.outputs.pr_number }}
       head_sha: \${{ steps.check.outputs.head_sha }}
       trigger: \${{ steps.check.outputs.trigger }}
+      user_message: \${{ steps.check.outputs.user_message }}
+      is_official: \${{ steps.check.outputs.is_official }}
     steps:
       - name: Check trigger
         id: check
@@ -68,6 +70,8 @@ export function generateCheckTriggerJob(config: Config): string {
             echo "pr_number=\${{ github.event.pull_request.number }}" >> \$GITHUB_OUTPUT
             echo "head_sha=\${{ github.event.pull_request.head.sha }}" >> \$GITHUB_OUTPUT
             echo "trigger=${input.ciTrigger}" >> \$GITHUB_OUTPUT
+            echo "user_message=" >> \$GITHUB_OUTPUT
+            echo "is_official=true" >> \$GITHUB_OUTPUT
             echo "should_continue=true" >> \$GITHUB_OUTPUT
             exit 0
           fi
@@ -93,7 +97,10 @@ ${permissionCheck}
           PR_NUMBER="\${{ github.event.issue.number }}"
 
           # 트리거 명령어 매칭 (첫 비어있지 않은 줄의 첫 단어)
-          FIRST_WORD=\$(printf '%s' "\${{ github.event.comment.body }}" | awk 'NF{print \$1; exit}')
+          # 보안: ${{ }}로 직접 삽입하면 command injection 가능하므로 jq로 안전하게 읽음
+          COMMENT_BODY=\$(jq -r '.comment.body // ""' "\$GITHUB_EVENT_PATH")
+          FIRST_LINE=\$(printf '%s' "\$COMMENT_BODY" | awk 'NF{print; exit}')
+          FIRST_WORD=\$(echo "\$FIRST_LINE" | awk '{print \$1}')
           TRIGGER=""
           if [[ "\$FIRST_WORD" =~ ^(${triggerPattern})\$ ]]; then
             TRIGGER="\$FIRST_WORD"
@@ -104,15 +111,56 @@ ${permissionCheck}
             exit 0
           fi
 
+          # 트리거 뒤의 추가 메시지 추출 (첫 줄 나머지 + 이후 모든 줄)
+          USER_MESSAGE=\$(printf '%s' "\$COMMENT_BODY" | awk -v trigger="\$TRIGGER" '
+            !found && NF {
+              found=1
+              sub(/^[[:space:]]*/, "")
+              sub(/^[^[:space:]]+[[:space:]]*/, "")
+              if (length(\$0) > 0) print
+              next
+            }
+            found { print }
+          ')
+
+          # 공백만 있는 경우 빈 문자열로 처리 (printf로 echo 옵션 해석 방지)
+          USER_MESSAGE_TRIMMED=\$(printf '%s' "\$USER_MESSAGE" | sed 's/^[[:space:]]*//;s/[[:space:]]*\$//' | tr -d '\\n')
+
+          # user_message를 base64로 인코딩하여 출력 (command injection 방지)
+          # 다음 job에서 ${{ }}로 읽어도 안전한 문자셋만 포함됨
+          USER_MESSAGE_B64=\$(printf '%s' "\$USER_MESSAGE" | base64 | tr -d '\\n')
+          echo "user_message=\$USER_MESSAGE_B64" >> \$GITHUB_OUTPUT
+
+          # 추가 메시지가 있으면 비공식 실행 (공백만 있으면 공식 실행)
+          if [ -z "\$USER_MESSAGE_TRIMMED" ]; then
+            echo "is_official=true" >> \$GITHUB_OUTPUT
+          else
+            echo "is_official=false" >> \$GITHUB_OUTPUT
+          fi
+
           if [ -z "\$PR_NUMBER" ]; then
             echo "should_continue=false" >> \$GITHUB_OUTPUT
             exit 0
           fi
 
           # HEAD SHA 조회
-          HEAD_SHA=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER" \\
-            | jq -r '.head.sha')
+          PR_RESPONSE=\$(curl -s -w "\\n%{http_code}" -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER")
+          HTTP_CODE=\$(echo "\$PR_RESPONSE" | tail -n1)
+          RESPONSE_BODY=\$(echo "\$PR_RESPONSE" | sed '\$d')
+
+          if [ "\$HTTP_CODE" != "200" ]; then
+            echo "Failed to fetch PR info: HTTP \$HTTP_CODE"
+            echo "should_continue=false" >> \$GITHUB_OUTPUT
+            exit 0
+          fi
+
+          HEAD_SHA=\$(echo "\$RESPONSE_BODY" | jq -r '.head.sha // empty')
+          if [ -z "\$HEAD_SHA" ]; then
+            echo "Failed to extract head SHA from response"
+            echo "should_continue=false" >> \$GITHUB_OUTPUT
+            exit 0
+          fi
 
           echo "pr_number=\$PR_NUMBER" >> \$GITHUB_OUTPUT
           echo "head_sha=\$HEAD_SHA" >> \$GITHUB_OUTPUT

@@ -601,7 +601,7 @@ describe('readers', () => {
           })
         );
 
-        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다');
+        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정하거나 cliCommand를 사용해야 합니다');
       });
 
       it('cli provider에 유효하지 않은 cliTool이면 에러를 던져야 함', async () => {
@@ -627,7 +627,58 @@ describe('readers', () => {
           })
         );
 
-        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정해야 합니다');
+        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정하거나 cliCommand를 사용해야 합니다');
+      });
+
+      it('cli provider에 빈 문자열 cliCommand는 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliCommand: '   ',  // 공백만 있는 경우
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정하거나 cliCommand를 사용해야 합니다');
+      });
+
+      it('숫자로 시작하는 체크 이름은 에러를 던져야 함 (bash 변수명 제약)', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: '1test',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('유효하지 않습니다');
       });
 
       it('cli provider에 유효한 cliTool이면 성공해야 함', async () => {

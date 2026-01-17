@@ -85,6 +85,8 @@ export interface PrReviewCheck extends BaseCheck {
   apiKeySecret?: string;
   /** CLI 도구 (cli provider용) */
   cliTool?: CliTool;
+  /** 커스텀 명령어 (cli provider용, cliTool 대신 사용) - PR 번호만 인자로 전달 */
+  cliCommand?: string;
   /** 프로젝트별 추가 리뷰 규칙 */
   customRules?: string;
 }

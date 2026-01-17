@@ -23,9 +23,10 @@ export const COMMENT_MARKERS = {
 
   /**
    * 리뷰 댓글 시작 패턴 (jq test용 정규식)
+   * 3단계: ✅ OK, ⚠️ WARNING, ❌ CRITICAL
    * @param checkName 체크 이름
    */
-  prReviewPattern: (checkName: string) => `^## [✅❌] ${checkName}`,
+  prReviewPattern: (checkName: string) => `^## [✅⚠️❌] ${checkName}`,
 
   /** 펼쳐진 상태 마커 */
   detailsOpen: '<details open>',

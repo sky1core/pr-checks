@@ -62,6 +62,25 @@ PR을 생성하면 가이드 코멘트가 자동으로 달립니다.
 /checks   # 전체 CI 실행 (mustRun: true인 모든 체크)
 ```
 
+**추가 메시지 전달** (AI 리뷰 전용):
+```
+/review 보안 관점에서 특히 봐줘
+```
+
+멀티라인도 지원:
+```
+/review
+보안 이슈 확인해줘
+성능도 봐줘
+```
+
+트리거 명령어 뒤에 텍스트를 추가하면 AI에게 추가 질문으로 전달됩니다.
+
+⚠️ **주의**: 추가 메시지가 있는 실행은 **비공식 실행**으로 취급됩니다:
+- 리뷰는 정상 실행됨
+- `mustRun`/`mustPass` 체크 통과로 인정되지 않음
+- 공식 체크를 원하면 순수하게 `/review`만 입력
+
 **Draft PR**: 자동 실행을 원하지 않으면 Draft PR로 작업하세요. Draft PR에서는 자동 실행이 스킵됩니다. 준비되면 "Ready for review"로 변경 후 `/checks`를 실행하면 됩니다.
 
 ## 생성되는 파일
@@ -159,6 +178,7 @@ AI 코드 리뷰에 사용합니다.
 | `model` | AI 모델 ID (bedrock 전용) |
 | `apiKeySecret` | GitHub Secret 이름 (bedrock 전용) |
 | `cliTool` | CLI 도구 이름 (cli 전용) |
+| `cliCommand` | 커스텀 명령어 (cli 전용, cliTool 대신 사용) |
 | `customRules` | 추가 리뷰 규칙 |
 
 ## Branch Protection 설정
@@ -225,10 +245,92 @@ checks:
     cliTool: claude
 ```
 
-### 참고
+### 3단계 판정
 
-- CLI provider는 항상 `success` 상태 반환 (pass/fail 판정 없음)
-- 리뷰 결과는 PR 코멘트로 게시
+CLI provider는 3단계로 리뷰 결과를 판정합니다:
+
+| 판정 | GitHub Status | 의미 |
+|------|---------------|------|
+| ❌ CRITICAL | failure | 심각한 문제, 머지 차단 |
+| ⚠️ WARNING | success | 경고, 머지 가능하지만 확인 필요 |
+| ✅ OK | success | 문제 없음 |
+
+**1. VERDICT 마커 (우선)**
+
+출력에 VERDICT 마커가 있으면 이를 우선 사용합니다:
+```
+<<<VERDICT:CRITICAL>>>   # 심각한 문제 발견
+<<<VERDICT:WARNING>>>    # 경고 (머지 가능)
+<<<VERDICT:OK>>>         # 문제 없음
+```
+
+- CRITICAL이 있으면 머지 차단
+- 마커는 최종 출력에서 자동 제거됨
+
+**2. 폴백 판정 (마커 없을 때)**
+
+VERDICT 마커가 없으면 다음 순서로 판정:
+1. exit code가 0이 아니면 → ❌ CRITICAL
+2. 출력에 🔴 이모지가 있으면 → ❌ CRITICAL
+3. 출력에 🟡 이모지가 있으면 → ⚠️ WARNING
+4. 그 외 → ✅ OK
+
+출력은 판정 결과와 관계없이 전부 표시됩니다.
+
+### 커스텀 명령어 (cliCommand)
+
+`cliTool` 대신 `cliCommand`를 사용하면 커스텀 스크립트로 리뷰할 수 있습니다:
+
+```yaml
+checks:
+  - name: custom-review
+    trigger: /review
+    type: pr-review
+    provider: cli
+    cliCommand: ./review-wrapper.sh
+```
+
+**인자 전달:**
+- 첫 번째 인자: PR 번호
+- 두 번째 인자: 추가 메시지 (멀티라인 포함, 빈 문자열 가능)
+
+```bash
+# 기본 실행
+./review-wrapper.sh 123 ""
+
+# 추가 메시지 포함 (멀티라인도 그대로 전달됨)
+./review-wrapper.sh 123 "보안 관점에서 봐줘
+성능도 확인해줘"
+```
+
+**커스텀 스크립트 예시:**
+
+```bash
+#!/bin/bash
+# .pr-checks/scripts/review-wrapper.sh
+
+PR_NUMBER="$1"
+USER_MESSAGE="$2"
+
+# diff 가져오기
+DIFF=$(gh pr diff "$PR_NUMBER")
+
+# AI 리뷰 실행
+RESULT=$(echo "$DIFF" | my-ai-tool --review --message "$USER_MESSAGE")
+
+echo "$RESULT"
+
+# VERDICT 마커로 판정 (3단계)
+if echo "$RESULT" | grep -q "🔴"; then
+  echo "<<<VERDICT:CRITICAL>>>"
+elif echo "$RESULT" | grep -q "🟡"; then
+  echo "<<<VERDICT:WARNING>>>"
+else
+  echo "<<<VERDICT:OK>>>"
+fi
+```
+
+**주의:** `cliCommand`는 diff나 프롬프트를 직접 처리해야 합니다. 워크플로우는 checkout만 하고 나머지는 스크립트가 담당합니다.
 
 ## 플랫폼별 차이
 
@@ -274,11 +376,29 @@ GitHub Actions는 이벤트 종류에 따라 **다른 브랜치의 워크플로�
 
 ## 요구사항
 
+### CLI 도구 (워크플로우 생성용)
+
 - Node.js >= 18.0.0
-- GitHub/Gitea Actions 활성화
-- AI 리뷰:
-  - Bedrock: API 키 (GitHub Secrets)
-  - CLI: runner에 CLI 도구 설치
+
+### Runner 환경 (워크플로우 실행용)
+
+- `jq` - JSON 파싱 (ubuntu-latest에 기본 포함)
+- `base64` - 메시지 인코딩 (coreutils에 포함)
+- `curl` - API 호출 (ubuntu-latest에 기본 포함)
+
+**Self-hosted runner 사용 시:**
+```bash
+# macOS
+brew install jq
+
+# Ubuntu/Debian
+sudo apt-get install jq
+```
+
+### AI 리뷰
+
+- Bedrock: API 키 (GitHub Secrets에 저장)
+- CLI: runner에 CLI 도구 설치 (claude, codex, gemini, kiro)
 
 ## 라이선스
 

@@ -267,6 +267,49 @@ describe('job 조건문 검증', () => {
       expect(parsed.jobs['check-trigger'].outputs.should_continue).toBeDefined();
       expect(parsed.jobs['check-trigger'].outputs.pr_number).toBeDefined();
       expect(parsed.jobs['check-trigger'].outputs.trigger).toBeDefined();
+      expect(parsed.jobs['check-trigger'].outputs.user_message).toBeDefined();
+      expect(parsed.jobs['check-trigger'].outputs.is_official).toBeDefined();
+    });
+
+    it('추가 메시지 추출 및 is_official 판정이 있어야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      // 추가 메시지 추출 로직
+      expect(yaml).toContain('user_message');
+      expect(yaml).toContain('USER_MESSAGE=');
+
+      // is_official 판정 로직
+      expect(yaml).toContain('is_official=true');
+      expect(yaml).toContain('is_official=false');
+    });
+
+    it('user_message를 base64로 인코딩해야 함 (injection 방지)', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      // base64 인코딩 사용 (command injection 방지)
+      expect(yaml).toContain('USER_MESSAGE_B64=$(printf');
+      expect(yaml).toContain('| base64 |');
+      expect(yaml).toContain('user_message=$USER_MESSAGE_B64');
+    });
+
+    it('공백만 있으면 is_official=true로 판정해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      // USER_MESSAGE_TRIMMED로 공백 제거 후 판정
+      expect(yaml).toContain('USER_MESSAGE_TRIMMED=');
+      expect(yaml).toContain('if [ -z "$USER_MESSAGE_TRIMMED" ]');
+    });
+
+    it('awk로 트리거 이후 모든 줄을 추출해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      // awk로 첫 줄 나머지 + 이후 줄 추출
+      expect(yaml).toContain('awk -v trigger=');
+      expect(yaml).toContain('found { print }');
     });
 
     it('GitHub 플랫폼은 collaborators API를 사용해야 함', () => {
@@ -335,6 +378,27 @@ describe('job 조건문 검증', () => {
 
       const jobIf = parsed.jobs['pr-review'].if;
       expect(jobIf).toContain("needs.check-trigger.outputs.should_continue == 'true'");
+    });
+
+    it('is_official=true일 때만 status 업데이트해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const steps = parsed.jobs['pr-review'].steps;
+      const pendingStep = steps.find((s: any) => s.name === 'Set pending status');
+      const finalStep = steps.find((s: any) => s.name === 'Set final status');
+
+      expect(pendingStep.if).toContain("is_official == 'true'");
+      expect(finalStep.if).toContain("is_official == 'true'");
+    });
+
+    it('비공식 실행 시 코멘트에 안내 메시지가 포함되어야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('비공식 실행');
+      expect(yaml).toContain('mustRun/mustPass 체크에 반영되지 않습니다');
     });
   });
 
@@ -946,6 +1010,44 @@ describe('CLI provider 지원', () => {
       // kiro는 ANSI 코드 제거 필터가 있어야 함
       expect(yaml).toContain('perl -pe');
     });
+
+    it('커스텀 명령어가 올바르게 생성되어야 함', () => {
+      const config: Config = {
+        input: {
+          platform: 'github',
+          runner: ['self-hosted', 'macOS', 'ARM64'],
+          checks: [
+            {
+              name: 'custom-review',
+              trigger: '/review',
+              type: 'pr-review',
+              mustRun: true,
+              mustPass: false,
+              provider: 'cli',
+              cliCommand: 'my-review-wrapper',
+            } as PrReviewCheck,
+          ],
+          ciTrigger: '/checks',
+          generateApprovalOverride: false,
+          branches: ['main'],
+        },
+      };
+      const yaml = generatePrChecksWorkflow(config);
+
+      // 커스텀 명령어 사용
+      expect(yaml).toContain('my-review-wrapper "$PR_NUMBER"');
+      expect(yaml).toContain('Run AI Review (custom)');
+      // diff 스텝이 없어야 함
+      expect(yaml).not.toContain('Get PR diff');
+      expect(yaml).not.toContain('DIFF_CONTENT=$(cat diff.txt)');
+      // 3단계 판정
+      expect(yaml).toContain('EXIT_CODE=$?');
+      expect(yaml).toContain('result=critical');
+      expect(yaml).toContain('result=warning');
+      expect(yaml).toContain('result=ok');
+      // 댓글 푸터에 CLI: custom 표시
+      expect(yaml).toContain('CLI: custom');
+    });
   });
 
   describe('diff 헤더 설정', () => {
@@ -975,13 +1077,21 @@ describe('CLI provider 지원', () => {
       expect(yaml).toContain('=== END DIFF ===');
     });
 
-    it('CLI provider는 항상 success 상태를 반환해야 함', () => {
+    it('CLI provider는 VERDICT 마커 기반으로 3단계 판정해야 함 (CRITICAL 우선)', () => {
       const config = createCliConfig('claude');
       const yaml = generatePrChecksWorkflow(config);
 
-      expect(yaml).toContain('result=success');
-      // CLI는 pass/fail 판정 없이 텍스트만 반환
-      expect(yaml).toContain('# CLI provider는 항상 success');
+      // exit code 캡처
+      expect(yaml).toContain('EXIT_CODE=$?');
+      // VERDICT 마커 기반 3단계 판정 (CRITICAL 우선 체크)
+      expect(yaml).toContain('<<<VERDICT:CRITICAL>>>');
+      expect(yaml).toContain('<<<VERDICT:WARNING>>>');
+      expect(yaml).toContain('<<<VERDICT:OK>>>');
+      expect(yaml).toContain('result=critical');
+      expect(yaml).toContain('result=warning');
+      expect(yaml).toContain('result=ok');
+      // 마커 제거 (perl 사용 - macOS/Linux 호환)
+      expect(yaml).toContain('perl -pi -e');
     });
 
     it('CLI 리뷰 프롬프트가 포함되어야 함', () => {
@@ -990,16 +1100,22 @@ describe('CLI provider 지원', () => {
 
       expect(yaml).toContain('시니어 개발자');
       expect(yaml).toContain('코드 변경사항을 리뷰');
+      // VERDICT 마커 출력 지시
+      expect(yaml).toContain('<<<VERDICT:CRITICAL>>>');
+      expect(yaml).toContain('<<<VERDICT:WARNING>>>');
+      expect(yaml).toContain('<<<VERDICT:OK>>>');
     });
 
     it('CLI provider 댓글이 접기 패턴과 일치해야 함 (회귀 테스트)', () => {
       const config = createCliConfig('claude');
       const yaml = generatePrChecksWorkflow(config);
 
-      // CLI provider 댓글은 ## ✅ 형식으로 시작해야 접기 패턴(^## [✅❌])과 일치
-      expect(yaml).toContain('echo "## ✅ cli-review"');
-      // 🤖 형식은 접기 패턴과 불일치하므로 사용하면 안 됨
-      expect(yaml).not.toContain('echo "## 🤖');
+      // CLI provider 댓글도 result 기반으로 ✅/⚠️/❌ 이모지 사용 (3단계)
+      expect(yaml).toContain('echo "## ${EMOJI} cli-review');
+      // 동적으로 EMOJI 결정 (3단계)
+      expect(yaml).toContain('EMOJI="✅"');
+      expect(yaml).toContain('EMOJI="⚠️"');
+      expect(yaml).toContain('EMOJI="❌"');
     });
   });
 
