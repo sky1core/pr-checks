@@ -1007,8 +1007,10 @@ describe('CLI provider 지원', () => {
 
       expect(yaml).toContain('kiro-cli chat --no-interactive');
       expect(yaml).toContain('Run AI Review (kiro)');
-      // kiro는 ANSI 코드 제거 필터가 있어야 함
+      // ANSI 코드 제거 필터가 있어야 함
       expect(yaml).toContain('perl -pe');
+      // CSI 시퀀스 패턴 (색상, 커서 제어 등)
+      expect(yaml).toContain('[0-?]*[ -\\/]*[\\@-~]');
     });
 
     it('커스텀 명령어가 올바르게 생성되어야 함', () => {
@@ -1067,6 +1069,18 @@ describe('CLI provider 지원', () => {
       const yaml = generatePrChecksWorkflow(config);
 
       expect(yaml).toContain('DIFF_CONTENT=$(cat diff.txt)');
+    });
+
+    it('ANSI escape 코드 필터가 CSI/OSC/문자셋 시퀀스를 모두 처리해야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      // CSI 시퀀스 패턴 (색상, 커서 제어: \e[?25h 등)
+      expect(yaml).toContain('[0-?]*[ -\\/]*[\\@-~]');
+      // OSC 시퀀스 패턴 (터미널 타이틀 등: \e]0;title\x07)
+      expect(yaml).toContain('[^\\x07]*\\x07');
+      // 문자셋 시퀀스 패턴 (\e(0, \e)2 등)
+      expect(yaml).toContain('[()][0-2]');
     });
 
     it('프롬프트에 diff 내용이 포함되어야 함', () => {

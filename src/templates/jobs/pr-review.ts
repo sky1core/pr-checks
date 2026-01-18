@@ -460,8 +460,8 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
 
       - name: Post PR comment
         run: |
-          # ANSI escape code 제거 (CLI 도구 출력에서 색상 코드 등 제거)
-          REVIEW=\$(perl -pe 's/\\e\\[[0-9;]*m//g' review.txt)
+          # ANSI escape code 제거 (색상, 커서 제어 등 모든 CSI/OSC 시퀀스)
+          REVIEW=\$(perl -pe 's/\\x1B\\[[0-?]*[ -\\/]*[\\@-~]//g; s/\\x1B\\][^\\x07]*\\x07//g; s/\\x1B[()][0-2]//g' review.txt)
 
           # GitHub uses run_id in URL, Gitea uses run_number
           if [[ "\${{ github.server_url }}" == *"github.com"* ]]; then
