@@ -245,24 +245,26 @@ function generateCustomCommandReviewStep(check: PrReviewCheck, config: Config): 
           fi
 
           # 커스텀 명령어 실행 (PR 번호 + 추가 메시지)
+          # review.txt는 workspace에 저장 (다른 step에서 접근 가능하도록)
+          REVIEW_FILE="\${{ github.workspace }}/review.txt"
           set +e
-          ${command} "\$PR_NUMBER" "\$USER_MESSAGE" > review.txt 2>&1
+          ${command} "\$PR_NUMBER" "\$USER_MESSAGE" > "\$REVIEW_FILE" 2>&1
           EXIT_CODE=\$?
           set -e
 
           # VERDICT 마커 우선, 없으면 이모지 카운트로 판정
-          if grep -q "<<<VERDICT:CRITICAL>>>" review.txt; then
+          if grep -q "<<<VERDICT:CRITICAL>>>" "\$REVIEW_FILE"; then
             echo "result=critical" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:WARNING>>>" review.txt; then
+          elif grep -q "<<<VERDICT:WARNING>>>" "\$REVIEW_FILE"; then
             echo "result=warning" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:OK>>>" review.txt; then
+          elif grep -q "<<<VERDICT:OK>>>" "\$REVIEW_FILE"; then
             echo "result=ok" >> \$GITHUB_OUTPUT
           elif [ \$EXIT_CODE -ne 0 ]; then
             echo "result=critical" >> \$GITHUB_OUTPUT
           else
             # 마커 없으면 이모지 카운트로 판정
-            CRITICAL_COUNT=\$(grep -c "🔴" review.txt || true)
-            WARNING_COUNT=\$(grep -c "🟡" review.txt || true)
+            CRITICAL_COUNT=\$(grep -c "🔴" "\$REVIEW_FILE" || true)
+            WARNING_COUNT=\$(grep -c "🟡" "\$REVIEW_FILE" || true)
             if [ "\$CRITICAL_COUNT" -gt 0 ]; then
               echo "result=critical" >> \$GITHUB_OUTPUT
             elif [ "\$WARNING_COUNT" -gt 0 ]; then
@@ -273,7 +275,7 @@ function generateCustomCommandReviewStep(check: PrReviewCheck, config: Config): 
           fi
 
           # 출력에서 VERDICT 마커 제거 (댓글에는 표시 안 함)
-          perl -pi -e 's/<<<VERDICT:(CRITICAL|WARNING|OK)>>>//g' review.txt`;
+          perl -pi -e 's/<<<VERDICT:(CRITICAL|WARNING|OK)>>>//g' "\$REVIEW_FILE"`;
 }
 
 /**
