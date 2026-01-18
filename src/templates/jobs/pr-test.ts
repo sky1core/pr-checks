@@ -69,6 +69,7 @@ ${generatePrFetchStep()}
       - uses: actions/checkout@v4
         with:
           ref: \${{ steps.pr-branch.outputs.branch }}
+          submodules: recursive
 
       - name: Set working directory
         run: echo "WORK_DIR=\${{ github.workspace }}" >> \$GITHUB_ENV`;

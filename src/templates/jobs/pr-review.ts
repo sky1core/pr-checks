@@ -386,7 +386,8 @@ ${generatePrFetchStep()}`;
       diffSteps = `      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: refs/pull/\${{ needs.check-trigger.outputs.pr_number }}/head`;
+          ref: refs/pull/\${{ needs.check-trigger.outputs.pr_number }}/head
+          submodules: recursive`;
     }
   } else {
     diffSteps = generateDiffSteps(config);

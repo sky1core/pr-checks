@@ -17,10 +17,11 @@ export function generateRepoCacheStep(_config: Config): string {
             echo "Using cached repository at \$REPO_DIR"
             cd "\$REPO_DIR"
             git fetch --all --prune
+            git submodule update --init --recursive
           else
             echo "Cloning repository to \$REPO_DIR"
             mkdir -p "\$(dirname "\$REPO_DIR")"
-            git clone "\$REPO_URL" "\$REPO_DIR"
+            git clone --recurse-submodules "\$REPO_URL" "\$REPO_DIR"
           fi
 
           echo "repo_dir=\$REPO_DIR" >> \$GITHUB_OUTPUT`;
