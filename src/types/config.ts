@@ -44,6 +44,29 @@ export interface SetupStep {
 export type CheckType = 'pr-test' | 'pr-review';
 
 /**
+ * PR 이벤트 액션 타입
+ * - 'opened': PR 생성 시
+ * - 'synchronize': PR에 푸시 시
+ * - 'reopened': PR 재오픈 시
+ * - 'ready_for_review': draft → ready 전환 시
+ */
+export type PullRequestAction = 'opened' | 'synchronize' | 'reopened' | 'ready_for_review';
+
+/**
+ * autoRunOn 기본값
+ * - mustRun=true: PR 생성/푸시 시 자동 실행
+ * - mustRun=false: 자동 실행 안 함
+ */
+export const DEFAULT_AUTO_RUN_ON: PullRequestAction[] = ['opened', 'synchronize'];
+
+/**
+ * 체크의 autoRunOn 기본값 반환
+ */
+export function getDefaultAutoRunOn(mustRun: boolean): PullRequestAction[] {
+  return mustRun ? DEFAULT_AUTO_RUN_ON : [];
+}
+
+/**
  * 기본 체크 인터페이스
  */
 interface BaseCheck {
@@ -57,6 +80,8 @@ interface BaseCheck {
   mustRun: boolean;
   /** 머지 게이트 통과 조건: true면 성공해야 함, false면 실행만 하면 됨 */
   mustPass: boolean;
+  /** 자동 실행할 PR 이벤트 목록 (기본값: mustRun이면 ['synchronize'], 아니면 []) */
+  autoRunOn?: PullRequestAction[];
 }
 
 /**

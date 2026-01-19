@@ -1,5 +1,5 @@
 import type { Config, PrTestCheck, PrReviewCheck } from '../types/config.js';
-import { isPrTestCheck, isPrReviewCheck } from '../types/config.js';
+import { isPrTestCheck, isPrReviewCheck, getDefaultAutoRunOn } from '../types/config.js';
 import {
   generateCheckTriggerJob,
   generatePrTestJob,
@@ -68,6 +68,14 @@ export function generatePrChecksWorkflow(config: Config): string {
   const prReviewChecks = input.checks.filter(isPrReviewCheck);
   const requiredPrTests = prTestChecks.filter((c) => c.mustRun);
 
+  // 모든 체크에서 사용하는 PR 액션 수집
+  const allActions = new Set<string>(['opened']); // opened는 항상 필요 (guide-comment용)
+  for (const c of input.checks) {
+    const actions = c.autoRunOn ?? getDefaultAutoRunOn(c.mustRun);
+    actions.forEach((a) => allActions.add(a));
+  }
+  const prTypes = Array.from(allActions).join(', ');
+
   // 각 체크 job 생성
   const prTestJobs = prTestChecks
     .map((check) => generatePrTestJob(check, config))
@@ -80,9 +88,9 @@ export function generatePrChecksWorkflow(config: Config): string {
   return `name: PR Checks
 
 on:
-  # PR 생성 시 가이드 코멘트, 푸시 시 자동 실행
+  # PR 이벤트 (guide-comment + 자동 실행)
   pull_request:
-    types: [opened, synchronize]
+    types: [${prTypes}]
     branches: [${input.branches.join(', ')}]
 
   # PR 코멘트로 수동 실행

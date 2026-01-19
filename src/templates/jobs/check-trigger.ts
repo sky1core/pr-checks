@@ -1,4 +1,5 @@
 import type { Config } from '../../types/config.js';
+import { getDefaultAutoRunOn } from '../../types/config.js';
 
 /**
  * 트리거 체크 job
@@ -41,11 +42,47 @@ export function generateCheckTriggerJob(config: Config): string {
 
   const permissionCheck = generatePermissionCheck(input.platform);
 
+  // 각 체크별 auto_run output 생성
+  const autoRunOutputs = input.checks
+    .map((c) => `      auto_run_${c.name}: \${{ steps.check.outputs.auto_run_${c.name} }}`)
+    .join('\n');
+
+  // 모든 체크에서 사용하는 PR 액션 수집 (워크플로우 if 조건용)
+  const allActions = new Set<string>();
+  for (const c of input.checks) {
+    const actions = c.autoRunOn ?? getDefaultAutoRunOn(c.mustRun);
+    actions.forEach((a) => allActions.add(a));
+  }
+  // 최소한 synchronize는 포함 (기존 동작 호환)
+  if (allActions.size === 0) {
+    allActions.add('synchronize');
+  }
+  const prActionConditions = Array.from(allActions)
+    .map((a) => `github.event.action == '${a}'`)
+    .join(' || ');
+
+  // 각 체크별 autoRunOn 설정에 따른 자동 실행 로직 생성
+  const autoRunLogic = input.checks
+    .map((c) => {
+      const autoRunOn = c.autoRunOn ?? getDefaultAutoRunOn(c.mustRun);
+      if (autoRunOn.length === 0) {
+        return `            echo "auto_run_${c.name}=false" >> \$GITHUB_OUTPUT`;
+      } else {
+        const conditions = autoRunOn.map((a) => `"\$ACTION" = "${a}"`).join(' ] || [ ');
+        return `            if [ ${conditions} ]; then
+              echo "auto_run_${c.name}=true" >> \$GITHUB_OUTPUT
+            else
+              echo "auto_run_${c.name}=false" >> \$GITHUB_OUTPUT
+            fi`;
+      }
+    })
+    .join('\n');
+
   return `  # 트리거 체크
   check-trigger:
     if: |
       github.event_name == 'issue_comment' ||
-      (github.event_name == 'pull_request' && github.event.action == 'synchronize')
+      (github.event_name == 'pull_request' && (${prActionConditions}))
     runs-on: ubuntu-latest
     outputs:
       should_continue: \${{ steps.check.outputs.should_continue }}
@@ -54,12 +91,15 @@ export function generateCheckTriggerJob(config: Config): string {
       trigger: \${{ steps.check.outputs.trigger }}
       user_message: \${{ steps.check.outputs.user_message }}
       is_official: \${{ steps.check.outputs.is_official }}
+${autoRunOutputs}
     steps:
       - name: Check trigger
         id: check
         run: |
-          # pull_request synchronize 이벤트: 푸시 시 자동 실행
+          # pull_request 이벤트: opened/synchronize 처리
           if [ "\${{ github.event_name }}" = "pull_request" ]; then
+            ACTION="\${{ github.event.action }}"
+
             # Draft PR은 자동 실행 스킵
             if [ "\${{ github.event.pull_request.draft }}" = "true" ]; then
               echo "Draft PR - skipping auto run"
@@ -69,9 +109,13 @@ export function generateCheckTriggerJob(config: Config): string {
 
             echo "pr_number=\${{ github.event.pull_request.number }}" >> \$GITHUB_OUTPUT
             echo "head_sha=\${{ github.event.pull_request.head.sha }}" >> \$GITHUB_OUTPUT
-            echo "trigger=${input.ciTrigger}" >> \$GITHUB_OUTPUT
+            echo "trigger=" >> \$GITHUB_OUTPUT
             echo "user_message=" >> \$GITHUB_OUTPUT
             echo "is_official=true" >> \$GITHUB_OUTPUT
+
+            # 각 체크별 자동 실행 여부 설정
+${autoRunLogic}
+
             echo "should_continue=true" >> \$GITHUB_OUTPUT
             exit 0
           fi

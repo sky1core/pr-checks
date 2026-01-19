@@ -211,6 +211,198 @@ describe('pr-checks.yml 생성', () => {
     });
 
   });
+
+  describe('autoRunOn 설정', () => {
+    it('mustRun: true인 체크는 기본적으로 opened, synchronize에서 자동 실행', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'my-test',
+          trigger: '/test',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // PR 이벤트 타입에 opened와 synchronize가 포함되어야 함
+      expect(parsed.on.pull_request.types).toContain('opened');
+      expect(parsed.on.pull_request.types).toContain('synchronize');
+
+      // check-trigger outputs에 auto_run_my-test가 있어야 함
+      expect(parsed.jobs['check-trigger'].outputs).toHaveProperty('auto_run_my-test');
+
+      // 자동 실행 로직에 opened와 synchronize 조건이 있어야 함
+      expect(yaml).toContain('auto_run_my-test=true');
+    });
+
+    it('mustRun: false인 체크는 기본적으로 자동 실행되지 않음', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'optional-test',
+          trigger: '/opt',
+          type: 'pr-test',
+          mustRun: false,
+          mustPass: false,
+          command: 'npm run optional',
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+
+      // 자동 실행이 항상 false
+      expect(yaml).toContain('auto_run_optional-test=false');
+    });
+
+    it('autoRunOn: []이면 자동 실행되지 않음', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'manual-only',
+          trigger: '/manual',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          autoRunOn: [],
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+
+      // 자동 실행이 항상 false
+      expect(yaml).toContain('auto_run_manual-only=false');
+    });
+
+    it('autoRunOn: [opened]이면 PR 생성 시에만 자동 실행', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'create-only',
+          trigger: '/create',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          autoRunOn: ['opened'],
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // PR 이벤트 타입에 opened가 포함되어야 함
+      expect(parsed.on.pull_request.types).toContain('opened');
+
+      // opened 조건만 있어야 함
+      expect(yaml).toContain('"$ACTION" = "opened"');
+    });
+
+    it('autoRunOn: [ready_for_review]이면 Ready 전환 시에만 자동 실행', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'ready-only',
+          trigger: '/ready',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          autoRunOn: ['ready_for_review'],
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // PR 이벤트 타입에 ready_for_review가 포함되어야 함
+      expect(parsed.on.pull_request.types).toContain('ready_for_review');
+
+      // ready_for_review 조건이 있어야 함
+      expect(yaml).toContain('"$ACTION" = "ready_for_review"');
+    });
+
+    it('여러 체크의 autoRunOn이 합쳐져서 PR 이벤트 타입이 결정됨', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'test1',
+          trigger: '/test1',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          autoRunOn: ['opened'],
+        } as PrTestCheck,
+        {
+          name: 'test2',
+          trigger: '/test2',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+          autoRunOn: ['synchronize', 'reopened'],
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // 모든 이벤트 타입이 포함되어야 함
+      expect(parsed.on.pull_request.types).toContain('opened');
+      expect(parsed.on.pull_request.types).toContain('synchronize');
+      expect(parsed.on.pull_request.types).toContain('reopened');
+    });
+
+    it('pr-test job의 if 조건에 auto_run output이 포함되어야 함', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'my-test',
+          trigger: '/test',
+          type: 'pr-test',
+          mustRun: true,
+          mustPass: true,
+          command: 'npm test',
+        } as PrTestCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // job의 if 조건에 auto_run이 포함되어야 함
+      const jobIf = parsed.jobs['my-test'].if;
+      expect(jobIf).toContain("needs.check-trigger.outputs.auto_run_my-test == 'true'");
+    });
+
+    it('pr-review job의 if 조건에 auto_run output이 포함되어야 함', () => {
+      const config = createTestConfig();
+      config.input.checks = [
+        {
+          name: 'my-review',
+          trigger: '/review',
+          type: 'pr-review',
+          mustRun: true,
+          mustPass: false,
+          provider: 'bedrock',
+          model: 'test-model',
+          apiKeySecret: 'TEST_KEY',
+        } as PrReviewCheck,
+      ];
+
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      // job의 if 조건에 auto_run이 포함되어야 함
+      const jobIf = parsed.jobs['my-review'].if;
+      expect(jobIf).toContain("needs.check-trigger.outputs.auto_run_my-review == 'true'");
+    });
+  });
 });
 
 describe('approval-override.yml 생성', () => {
@@ -1409,6 +1601,48 @@ describe('selfHosted 지원', () => {
 
         expect(() => parseYaml(yaml)).not.toThrow();
       }
+    });
+  });
+
+  describe('pr-review job 실행 조건', () => {
+    it('자동 실행(ciTrigger)에서는 pr-test 성공해야 pr-review 실행', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prReviewIf = parsed.jobs['pr-review'].if;
+
+      // ciTrigger일 때 pr-test 성공 조건 필요
+      // trigger == '/checks' → pr-test.result == 'success' 체크
+      expect(prReviewIf).toContain("needs.pr-test.result == 'success'");
+      expect(prReviewIf).toContain("/checks");
+    });
+
+    it('수동 실행(/review)에서는 pr-test 상태와 무관하게 실행', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prReviewIf = parsed.jobs['pr-review'].if;
+
+      // 개별 트리거(/review)면 pr-test.result 체크 안 함
+      // trigger != '/checks' 조건으로 우회
+      expect(prReviewIf).toContain("trigger != '/checks'");
+
+      // 조건 구조: (trigger != '/checks' || pr-test.result == 'success')
+      // /review 트리거면 앞부분이 true라서 뒷부분 평가 안 함
+      expect(prReviewIf).toMatch(/trigger != '\/checks'.*\|\|.*pr-test\.result/s);
+    });
+
+    it('수동 /review 트리거 시 pr-test가 skipped여도 pr-review 실행 가능해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+      const parsed = parseYaml(yaml);
+
+      const prReviewIf = parsed.jobs['pr-review'].if;
+
+      // always() 필수 - needs job이 skipped여도 if 조건 평가되도록
+      expect(prReviewIf).toContain('always()');
     });
   });
 });

@@ -342,13 +342,14 @@ export function generatePrReviewJob(
   const selfHosted = input.selfHosted;
   const diffStepId = selfHosted ? 'git-diff' : 'diff';
 
-  // 실행 조건: 개별 트리거 또는 ciTrigger(required일 때만)
+  // 실행 조건: 개별 트리거, ciTrigger(mustRun일 때), 자동 실행
   const runConditions = [
     `needs.check-trigger.outputs.trigger == '${check.trigger}'`,
   ];
   if (check.mustRun) {
     runConditions.push(`needs.check-trigger.outputs.trigger == '${input.ciTrigger}'`);
   }
+  runConditions.push(`needs.check-trigger.outputs.auto_run_${check.name} == 'true'`);
 
   // 의존성: check-trigger + required pr-test jobs (ciTrigger인 경우)
   const dependencies = ['check-trigger'];

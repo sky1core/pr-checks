@@ -13,6 +13,7 @@ import type {
   Platform,
   CliTool,
   SelfHostedConfig,
+  PullRequestAction,
 } from '../types/config.js';
 import { DEFAULT_INPUT_CONFIG, isPrTestCheck, isPrReviewCheck } from '../types/config.js';
 
@@ -170,6 +171,7 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
     trigger: trigger.trim(),
     mustRun: parseBoolean(rawCheck.mustRun, true),
     mustPass: parseBoolean(rawCheck.mustPass, false),
+    autoRunOn: rawCheck.autoRunOn as PullRequestAction[] | undefined,
   };
 
   if (type === 'pr-test') {
