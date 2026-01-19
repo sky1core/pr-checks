@@ -535,7 +535,11 @@ ${check.provider === 'cli' ? `
               ;;
           esac
 
+          # Metadata for comment tracking
+          METADATA="<!-- pr-checks:{\\"type\\":\\"pr-review\\",\\"check\\":\\"${check.name}\\",\\"sha\\":\\"\${HEAD_SHA}\\",\\"collapsed\\":false} -->"
+
           {
+            echo "\$METADATA"
             echo "## \${EMOJI} ${check.name} - \${STATUS}"
             if [ "\$IS_OFFICIAL" = "false" ]; then
               echo ""
@@ -577,7 +581,11 @@ ${check.provider === 'cli' ? `
               ;;
           esac
 
+          # Metadata for comment tracking
+          METADATA="<!-- pr-checks:{\\"type\\":\\"pr-review\\",\\"check\\":\\"${check.name}\\",\\"sha\\":\\"\${HEAD_SHA}\\",\\"collapsed\\":false} -->"
+
           {
+            echo "\$METADATA"
             echo "## \${EMOJI} ${check.name} - \${STATUS}"
             if [ "\$IS_OFFICIAL" = "false" ]; then
               echo ""

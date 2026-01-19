@@ -214,7 +214,8 @@ describe('generateWorkflowFiles', () => {
         'utf-8'
       );
 
-      expect(content).toContain('SHORT_SHA="${HEAD_SHA:0:7}"');
+      // 메타데이터 기반 SHA 추출
+      expect(content).toContain('COMMENT_SHA=$(echo "$BODY"');
     });
 
     it('워크플로우에서 스크립트 호출이 포함되어야 함', async () => {
