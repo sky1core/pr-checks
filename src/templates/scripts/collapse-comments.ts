@@ -75,25 +75,11 @@ echo "\$COMMENTS" | jq -c '.[]' | while read -r comment; do
 
   echo "접기 처리: 코멘트 \$COMMENT_ID (sha: \$COMMENT_SHA)"
 
-  # 메타데이터 업데이트: collapsed:false → collapsed:true
-  FIRST_LINE=\$(echo "\$BODY" | head -1)
-  REST=\$(echo "\$BODY" | tail -n +2)
-  NEW_FIRST_LINE=\$(echo "\$FIRST_LINE" | sed 's/"collapsed":false/"collapsed":true/')
+  # 메타데이터의 collapsed:false → collapsed:true 변경
+  # <details open> → <details> 변경
+  NEW_BODY=\$(echo "\$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
 
-  # 타이틀 라인 (예: ## ✅ pr-test - PASS)
-  TITLE_LINE=\$(echo "\$REST" | head -1)
-  CONTENT=\$(echo "\$REST" | tail -n +2)
-
-  {
-    echo "\$NEW_FIRST_LINE"
-    echo "\$TITLE_LINE"
-    echo ""
-    echo "<details>"
-    echo "<summary>펼쳐서 보기</summary>"
-    echo "\$CONTENT"
-    echo "</details>"
-  } > new_body.md
-
+  printf '%s' "\$NEW_BODY" > new_body.md
   PATCH_BODY=\$(jq -Rs '.' new_body.md)
   curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
     -H "Content-Type: application/json" \\

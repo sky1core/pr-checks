@@ -68,19 +68,29 @@ if [ "$TEST_PASSED" = "true" ]; then
     echo "$METADATA"
     echo "${passMarker} - PASS"
     echo ""
+    echo "<details open>"
+    echo "<summary>상세 내용</summary>"
+    echo ""
     echo "🔗 [상세 로그]($RUN_URL) | 📌 $SHORT_SHA"
     echo ""
     echo "\\\`${check.trigger}\\\` 명령에 대한 응답"
+    echo "</details>"
   } > comment.md
 else
   {
     echo "$METADATA"
-    printf '${failMarker} - FAIL\\n\\n\`\`\`\\n'
+    echo "${failMarker} - FAIL"
+    echo ""
+    echo "<details open>"
+    echo "<summary>상세 내용</summary>"
+    echo ""
+    printf '\`\`\`\\n'
     tail -50 test_output.txt 2>/dev/null || echo "(no output)"
     printf '\\n\`\`\`\\n\\n'
     echo "🔗 [상세 로그]($RUN_URL) | 📌 $SHORT_SHA"
     echo ""
     echo "\\\`${check.trigger}\\\` 명령에 대한 응답"
+    echo "</details>"
   } > comment.md
 fi
 
@@ -140,27 +150,10 @@ echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
   echo "Collapsing comment: $COMMENT_ID (sha: $COMMENT_SHA)"
 
   # Update metadata: collapsed:false → collapsed:true
-  # Then wrap content with <details>
-  FIRST_LINE=$(echo "$BODY" | head -1)
-  REST=$(echo "$BODY" | tail -n +2)
+  # Change <details open> → <details>
+  NEW_BODY=$(echo "$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
 
-  # Update collapsed flag in metadata
-  NEW_FIRST_LINE=$(echo "$FIRST_LINE" | sed 's/"collapsed":false/"collapsed":true/')
-
-  # Get the title line (second line, e.g., "## ✅ pr-test - PASS")
-  TITLE_LINE=$(echo "$REST" | head -1)
-  CONTENT=$(echo "$REST" | tail -n +2)
-
-  {
-    echo "$NEW_FIRST_LINE"
-    echo "$TITLE_LINE"
-    echo ""
-    echo "<details>"
-    echo "<summary>펼쳐서 보기</summary>"
-    echo "$CONTENT"
-    echo "</details>"
-  } > new_body.md
-
+  printf '%s' "$NEW_BODY" > new_body.md
   PATCH_BODY=$(jq -Rs '.' new_body.md)
   curl -sf -H "Authorization: token $GITHUB_TOKEN" \\
     -H "Content-Type: application/json" \\

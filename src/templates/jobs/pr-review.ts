@@ -547,12 +547,16 @@ ${check.provider === 'cli' ? `
               echo "> 📝 요청: \${USER_MESSAGE}"
             fi
             echo ""
+            echo "${COMMENT_MARKERS.detailsOpen}"
+            echo "<summary>상세 내용</summary>"
+            echo ""
             echo "\${REVIEW}"
             echo ""
             echo "---"
             echo "🔗 [상세 로그](\${RUN_URL}) | 📅 \$(date '+%Y-%m-%d %H:%M:%S') | 📌 \${SHORT_SHA} | \${RUNNER_TYPE}\${DIFF_DISPLAY:+ | \$DIFF_DISPLAY}"
             echo ""
             echo "🛠️ CLI: ${check.cliCommand ? 'custom' : check.cliTool} | ${check.trigger} 명령에 대한 응답"
+            echo "</details>"
           } > comment.txt` : `
           RESULT="\${{ steps.ai-check.outputs.result }}"
 
