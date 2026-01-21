@@ -136,6 +136,18 @@ ${setupSteps}
             echo "passed=false" >> \$GITHUB_OUTPUT
           fi
 
+      - name: Collapse old comments
+        shell: bash
+        working-directory: \${{ env.WORK_DIR }}
+        env:
+          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GITHUB_API_URL: \${{ github.api_url }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+        run: |
+          bash .pr-checks/scripts/${check.name}-collapse.sh \\
+            "\${{ needs.check-trigger.outputs.pr_number }}" \\
+            "\${{ needs.check-trigger.outputs.head_sha }}"
+
       - name: Set status and post comment
         shell: bash
         working-directory: \${{ env.WORK_DIR }}
@@ -151,18 +163,6 @@ ${setupSteps}
             "\${{ needs.check-trigger.outputs.head_sha }}" \\
             "\${{ needs.check-trigger.outputs.pr_number }}" \\
             "\${{ steps.test.outputs.passed }}"
-
-      - name: Collapse old comments
-        shell: bash
-        working-directory: \${{ env.WORK_DIR }}
-        env:
-          GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
-          GITHUB_API_URL: \${{ github.api_url }}
-          GITHUB_REPOSITORY: \${{ github.repository }}
-        run: |
-          bash .pr-checks/scripts/${check.name}-collapse.sh \\
-            "\${{ needs.check-trigger.outputs.pr_number }}" \\
-            "\${{ needs.check-trigger.outputs.head_sha }}"
 
       - name: Fail if tests failed
         if: steps.test.outputs.passed != 'true'

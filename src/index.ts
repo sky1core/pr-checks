@@ -42,8 +42,11 @@ const cli = meow(`
   },
 });
 
+// 비대화형 환경(LLM, CI, 스크립트)에서는 자동으로 -y 적용
+const isNonInteractive = !process.stdout.isTTY;
+
 run({
-  yes: cli.flags.yes,
+  yes: cli.flags.yes || isNonInteractive,
   cwd: cli.flags.cwd,
   init: cli.flags.init,
 }).catch((error) => {

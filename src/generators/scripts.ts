@@ -68,7 +68,7 @@ if [ "$TEST_PASSED" = "true" ]; then
     echo "$METADATA"
     echo "${passMarker} - PASS"
     echo ""
-    echo "<details open>"
+    echo "<details>"
     echo "<summary>상세 내용</summary>"
     echo ""
     echo "🔗 [상세 로그]($RUN_URL) | 📌 $SHORT_SHA"
