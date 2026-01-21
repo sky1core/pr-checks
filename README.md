@@ -278,12 +278,14 @@ selfHosted:
 
 ### 지원 도구
 
-| 도구 | 설정값 | 사전 설치 필요 |
-|------|--------|----------------|
-| Claude Code | `claude` | `npm install -g @anthropic-ai/claude-code` |
-| OpenAI Codex | `codex` | `npm install -g @openai/codex` |
-| Google Gemini | `gemini` | `npm install -g @anthropic-ai/gemini-cli` |
-| AWS Kiro | `kiro` | AWS Kiro CLI 설치 |
+| 도구 | 설정값 |
+|------|--------|
+| Claude Code | `claude` |
+| OpenAI Codex | `codex` |
+| Google Gemini | `gemini` |
+| Kiro | `kiro` |
+
+각 CLI 도구는 runner에 미리 설치되어 있어야 합니다.
 
 ### 설정
 

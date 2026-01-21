@@ -68,7 +68,7 @@ if [ "$TEST_PASSED" = "true" ]; then
     echo "$METADATA"
     echo "${passMarker} - PASS"
     echo ""
-    echo "<details>"
+    echo "<details open>"
     echo "<summary>상세 내용</summary>"
     echo ""
     echo "📋 테스트 실행 커맨드: \\\`${check.command}\\\`"
