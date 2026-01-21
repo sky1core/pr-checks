@@ -71,6 +71,8 @@ if [ "$TEST_PASSED" = "true" ]; then
     echo "<details>"
     echo "<summary>상세 내용</summary>"
     echo ""
+    echo "📋 테스트 실행 커맨드: \\\`${check.command}\\\`"
+    echo ""
     echo "🔗 [상세 로그]($RUN_URL) | 📌 $SHORT_SHA"
     echo ""
     echo "\\\`${check.trigger}\\\` 명령에 대한 응답"
@@ -83,6 +85,8 @@ else
     echo ""
     echo "<details open>"
     echo "<summary>상세 내용</summary>"
+    echo ""
+    echo "📋 테스트 실행 커맨드: \\\`${check.command}\\\`"
     echo ""
     printf '\`\`\`\\n'
     tail -50 test_output.txt 2>/dev/null || echo "(no output)"
