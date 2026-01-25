@@ -91,9 +91,12 @@ export interface PrTestCheck extends BaseCheck {
   type: 'pr-test';
   /** 테스트 실행 명령어 */
   command: string;
-  /** 테스트 프레임워크 (셋업 스텝 자동 생성용) */
+  /**
+   * 테스트 프레임워크 (셋업 스텝 자동 생성용)
+   * @deprecated setupSteps를 직접 사용하세요. 향후 버전에서 제거될 예정입니다.
+   */
   framework?: TestFramework;
-  /** 커스텀 셋업 스텝 */
+  /** 테스트 환경 셋업 스텝 (actions/setup-go 등) */
   setupSteps?: SetupStep[];
 }
 
@@ -176,7 +179,17 @@ export const DEFAULT_INPUT_CONFIG: InputConfig = {
       mustRun: true,
       mustPass: true,
       command: 'npm test',
-      framework: 'node',
+      setupSteps: [
+        {
+          name: 'setup-node',
+          uses: 'actions/setup-node@v4',
+          with: { 'node-version': '20' },
+        },
+        {
+          name: 'install-dependencies',
+          run: 'npm ci',
+        },
+      ],
     },
     {
       name: 'pr-review',

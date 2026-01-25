@@ -89,9 +89,13 @@ export async function readConfig(cwd: string): Promise<Config> {
     input = structuredClone(DEFAULT_INPUT_CONFIG);
   }
 
-  // pr-test 체크에 framework 기반 setupSteps 추가
+  // pr-test 체크에 framework 기반 setupSteps 추가 (deprecated)
   input.checks = input.checks.map((check) => {
     if (isPrTestCheck(check) && check.framework && !check.setupSteps) {
+      console.warn(
+        `경고: '${check.name}' 체크의 'framework' 옵션은 deprecated입니다. ` +
+          `setupSteps를 직접 사용하세요.`
+      );
       return {
         ...check,
         setupSteps: TEST_SETUP_STEPS[check.framework],

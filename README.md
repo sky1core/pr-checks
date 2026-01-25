@@ -179,18 +179,120 @@ autoRunOn: []
 | 속성 | 설명 |
 |------|------|
 | `command` | 실행할 명령어 |
-| `framework` | `node`, `python`, `go`, `rust`, `custom` |
-| `setupSteps` | 커스텀 셋업 스텝 (framework: custom일 때) |
+| `setupSteps` | 테스트 환경 셋업 스텝 |
 
-**framework별 기본 셋업:**
+### setupSteps 사용법
 
-| framework | 셋업 |
+`setupSteps`로 GitHub Actions의 공식 액션들을 사용해 테스트 환경을 구성합니다. runner에 도구가 미리 설치되어 있지 않아도 워크플로우 실행 시 자동으로 설치됩니다.
+
+**기본 구조:**
+
+```yaml
+setupSteps:
+  - name: 스텝 이름
+    uses: 액션 이름@버전    # GitHub Action 사용
+    with:                    # 액션 파라미터 (선택)
+      key: value
+  - name: 스텝 이름
+    run: 쉘 명령어           # 쉘 스크립트 실행
+```
+
+**예시 - Node.js:**
+
+```yaml
+- name: unit-test
+  trigger: /test
+  type: pr-test
+  mustRun: true
+  mustPass: true
+  command: npm test
+  setupSteps:
+    - name: setup-node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: install-deps
+      run: npm ci
+```
+
+**예시 - Go:**
+
+```yaml
+- name: test
+  trigger: /test
+  type: pr-test
+  mustRun: true
+  mustPass: true
+  command: go test ./...
+  setupSteps:
+    - name: setup-go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+```
+
+**예시 - Go 린트:**
+
+```yaml
+- name: lint
+  trigger: /lint
+  type: pr-test
+  mustRun: true
+  mustPass: true
+  command: golangci-lint run ./...
+  setupSteps:
+    - name: setup-go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.22'
+    - name: install-golangci-lint
+      run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+```
+
+**예시 - Python:**
+
+```yaml
+- name: test
+  trigger: /test
+  type: pr-test
+  mustRun: true
+  mustPass: true
+  command: pytest
+  setupSteps:
+    - name: setup-python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: install-deps
+      run: pip install -r requirements.txt
+```
+
+**예시 - Rust:**
+
+```yaml
+- name: test
+  trigger: /test
+  type: pr-test
+  mustRun: true
+  mustPass: true
+  command: cargo test
+  setupSteps:
+    - name: setup-rust
+      uses: dtolnay/rust-toolchain@stable
+```
+
+**자주 사용되는 액션:**
+
+| 언어/도구 | 액션 |
 |-----------|------|
-| `node` | actions/setup-node + npm ci |
-| `python` | astral-sh/setup-uv |
-| `go` | actions/setup-go |
-| `rust` | dtolnay/rust-toolchain |
-| `custom` | setupSteps에서 직접 정의 |
+| Node.js | `actions/setup-node@v4` |
+| Python | `actions/setup-python@v5` |
+| Go | `actions/setup-go@v5` |
+| Rust | `dtolnay/rust-toolchain@stable` |
+| Java | `actions/setup-java@v4` |
+| .NET | `actions/setup-dotnet@v4` |
+
+> **참고**: `framework` 옵션은 deprecated입니다. `setupSteps`를 직접 사용하세요.
 
 ### pr-review 타입
 
@@ -247,13 +349,56 @@ generateApprovalOverride: false
 
 macOS self-hosted runner에서 저장소 캐싱과 Docker 자동 시작을 지원합니다.
 
-### 설정
+### 설정 예시 (Go 프로젝트)
 
 ```yaml
+platform: github
 runner: [self-hosted, macOS, ARM64]
 
 selfHosted:
   docker: true  # Docker Desktop 자동 시작
+
+checks:
+  # 테스트
+  - name: test
+    trigger: /test
+    type: pr-test
+    mustRun: true
+    mustPass: true
+    command: go test ./...
+    setupSteps:
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+  # 린트
+  - name: lint
+    trigger: /lint
+    type: pr-test
+    mustRun: true
+    mustPass: true
+    command: golangci-lint run ./...
+    setupSteps:
+      - name: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - name: install-golangci-lint
+        run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+  # AI 리뷰 (CLI 도구 사용)
+  - name: review
+    trigger: /review
+    type: pr-review
+    mustRun: true
+    mustPass: false
+    provider: cli
+    cliTool: claude
+
+ciTrigger: /checks
+branches:
+  - main
 ```
 
 ### selfHosted 활성화 시 동작
