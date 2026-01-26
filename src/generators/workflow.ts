@@ -1,5 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
+import yaml from 'yaml';
 import type { Config } from '../types/config.js';
 import { generateWorkflows } from '../templates/index.js';
 import { generateScriptFiles } from './scripts.js';
@@ -26,6 +27,14 @@ export async function generateWorkflowFiles(cwd: string, config: Config): Promis
   // Generate workflow files
   for (const [filename, content] of Object.entries(workflows)) {
     if (content) {
+      // YAML 파싱 검증
+      try {
+        yaml.parse(content);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`생성된 워크플로우가 유효하지 않은 YAML입니다: ${filename}\n${errorMessage}`);
+      }
+
       const filePath = path.join(workflowsDir, filename);
       try {
         await fs.writeFile(filePath, content, 'utf-8');

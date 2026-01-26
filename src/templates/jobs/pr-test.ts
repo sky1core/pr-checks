@@ -7,6 +7,20 @@ import {
 } from '../steps/index.js';
 
 /**
+ * 멀티라인 명령어를 YAML에 맞게 들여쓰기 처리
+ * @param command 명령어 문자열
+ * @param indent 들여쓰기 공백 수
+ */
+function indentCommand(command: string, indent: number = 10): string {
+  const lines = command.split('\n');
+  if (lines.length === 1) {
+    return command;
+  }
+  const padding = ' '.repeat(indent);
+  return lines.map((line, i) => (i === 0 ? line : padding + line)).join('\n');
+}
+
+/**
  * 테스트 셋업 스텝 생성 (helper)
  */
 function generateTestSetupSteps(steps?: SetupStep[]): string {
@@ -128,7 +142,7 @@ ${setupSteps}
         working-directory: \${{ env.WORK_DIR }}
         run: |
           set +e
-          ${check.command} 2>&1 | tee test_output.txt
+          (${indentCommand(check.command)}) 2>&1 | tee test_output.txt
           EXIT_CODE=\${PIPESTATUS[0]}
           if [ "\$EXIT_CODE" = "0" ]; then
             echo "passed=true" >> \$GITHUB_OUTPUT

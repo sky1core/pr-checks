@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs-extra';
 import path from 'path';
+import yaml from 'yaml';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { generateWorkflowFiles } from '../src/generators/workflow.js';
@@ -115,6 +116,42 @@ describe('generateWorkflowFiles', () => {
       );
 
       expect(content).toContain('yarn test');
+    });
+
+    it('멀티라인 command가 올바르게 들여쓰기되어야 함', async () => {
+      const config = createTestConfig();
+      (config.input.checks[0] as PrTestCheck).command = `cd apps/go-api
+echo "=== golangci-lint ==="
+golangci-lint run --timeout=5m 2>&1 || true
+go test ./... -v`;
+
+      await generateWorkflowFiles(testDir, config);
+
+      const content = await fs.readFile(
+        path.join(testDir, '.github', 'workflows', 'pr-checks.yml'),
+        'utf-8'
+      );
+
+      // YAML 파싱이 성공해야 함
+      expect(() => yaml.parse(content)).not.toThrow();
+
+      // 멀티라인 내용이 포함되어야 함
+      expect(content).toContain('golangci-lint run');
+    });
+
+    it('command가 ()로 감싸져서 전체 출력이 캡처되어야 함', async () => {
+      const config = createTestConfig();
+      (config.input.checks[0] as PrTestCheck).command = 'cd foo && bar && baz';
+
+      await generateWorkflowFiles(testDir, config);
+
+      const content = await fs.readFile(
+        path.join(testDir, '.github', 'workflows', 'pr-checks.yml'),
+        'utf-8'
+      );
+
+      // command가 ()로 감싸져 있어야 함
+      expect(content).toContain('(cd foo && bar && baz) 2>&1 | tee test_output.txt');
     });
   });
 
