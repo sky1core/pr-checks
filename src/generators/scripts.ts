@@ -130,13 +130,27 @@ set +e
 PR_NUMBER="$1"
 HEAD_SHA="$2"
 
-# Find comments with metadata: check="${checkName}" and collapsed:false
-COMMENTS=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \\
-  "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \\
-  | jq "[.[] | select(.body | test(\\"${metadataPattern}\\")) | {id, body}]")
+echo "Collapsing old comments for PR #$PR_NUMBER (current sha: $HEAD_SHA)"
+
+# Fetch all comments (per_page=100 for pagination)
+ALL_COMMENTS=$(curl -sS -f -H "Authorization: token $GITHUB_TOKEN" \\
+  "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100") || {
+  echo "Warning: Failed to fetch comments"
+  exit 0
+}
+
+TOTAL_COUNT=$(echo "$ALL_COMMENTS" | jq 'length' 2>/dev/null)
+if [ -z "$TOTAL_COUNT" ] || [ "$TOTAL_COUNT" = "null" ]; then
+  echo "Warning: Invalid response from API"
+  exit 0
+fi
+echo "Total comments: $TOTAL_COUNT"
+
+# Filter comments with metadata: check="${checkName}" and collapsed:false
+COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | test("${metadataPattern}")) | {id, body}]')
 
 COMMENT_COUNT=$(echo "$COMMENTS" | jq 'length')
-echo "Found $COMMENT_COUNT comments to check"
+echo "Found $COMMENT_COUNT comments matching pattern"
 
 echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
   COMMENT_ID=$(echo "$comment" | jq -r '.id')
@@ -144,6 +158,12 @@ echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
 
   # Extract SHA from metadata
   COMMENT_SHA=$(echo "$BODY" | grep -o '"sha":"[^"]*"' | head -1 | sed 's/"sha":"\\([^"]*\\)"/\\1/')
+
+  # Skip if SHA extraction failed
+  if [ -z "$COMMENT_SHA" ]; then
+    echo "SHA extraction failed, skipping: $COMMENT_ID"
+    continue
+  fi
 
   # Skip current commit's comment
   if [ "$COMMENT_SHA" = "$HEAD_SHA" ]; then

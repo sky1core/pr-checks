@@ -27,19 +27,13 @@ export const COMMENT_MARKERS = {
     `${METADATA_PREFIX}${JSON.stringify(meta)}${METADATA_SUFFIX}`,
 
   /**
-   * 메타데이터 jq 패턴 (체크명 기준, 모든 코멘트)
-   * @param checkName 체크 이름
-   */
-  metadataPattern: (checkName: string) =>
-    `^<!-- pr-checks:.*check.*${checkName}.*-->`,
-
-  /**
    * 접히지 않은 코멘트 찾기용 jq 패턴 (collapsed:false)
-   * bash 문자열 내에서 따옴표 이스케이프 문제를 피하기 위해 단순화된 패턴 사용
+   * bash 문자열 내에서 ! 이스케이프 문제를 피하기 위해 <.-- 사용 (.이 !를 매치)
+   * check":"checkName"[,}] 형태로 정확히 매칭 (부분일치 방지)
    * @param checkName 체크 이름
    */
   collapsiblePattern: (checkName: string) =>
-    `^<!-- pr-checks:.*check.*${checkName}.*collapsed.:false.*-->`,
+    `^<.-- pr-checks:.*check.:.${checkName}.[,}].*collapsed.:false.*-->`,
 
   /**
    * 테스트 성공 댓글 시작 패턴 생성

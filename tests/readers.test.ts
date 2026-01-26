@@ -467,6 +467,31 @@ describe('readers', () => {
         await expect(readConfig(testDir)).rejects.toThrow('model은 bedrock provider에서 필수입니다');
       });
 
+      it('checkName에 정규식 특수문자가 있으면 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'test.*regex',
+                trigger: '/test',
+                type: 'pr-test',
+                mustRun: true,
+                mustPass: true,
+                command: 'npm test',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('유효하지 않습니다');
+      });
+
       it('빈 branches는 에러를 던져야 함', async () => {
         const prChecksDir = path.join(testDir, '.pr-checks');
         await fs.ensureDir(prChecksDir);
