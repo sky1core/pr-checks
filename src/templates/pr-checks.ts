@@ -41,6 +41,7 @@ ${checkRows.join('\n')}
 
           ### Merge Requirements
           All required checks must be completed, or approval is needed.
+${input.guideMessage ? `\n${input.guideMessage.split('\n').map(line => `          ${line}`).join('\n')}` : ''}
           GUIDE_EOF
 
           # 앞 공백 제거

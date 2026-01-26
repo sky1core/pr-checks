@@ -130,6 +130,12 @@ checks:
 ciTrigger: /checks
 branches:
   - main
+
+# 가이드 코멘트에 추가 문구 (선택)
+guideMessage: |
+  ### 프로젝트 규칙
+  - PR 제목은 conventional commit 형식으로 작성해주세요
+  - 테스트 커버리지 80% 이상 유지
 ```
 
 ### 전역 설정
@@ -141,6 +147,7 @@ branches:
 | `branches` | 대상 브랜치 목록 | `[main, master]` |
 | `ciTrigger` | 전체 CI 실행 트리거 | `/checks` |
 | `generateApprovalOverride` | 승인 시 머지 게이트 해제 워크플로우 생성 | `true` |
+| `guideMessage` | PR 가이드 코멘트에 추가할 커스텀 문구 | - |
 
 ### checks 공통 속성
 

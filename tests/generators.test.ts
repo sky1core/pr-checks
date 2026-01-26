@@ -267,6 +267,18 @@ go test ./... -v`;
       expect(content).toContain('bash .pr-checks/scripts/pr-test-report.sh');
       expect(content).toContain('bash .pr-checks/scripts/pr-test-collapse.sh');
     });
+
+    it('report 스크립트가 출력을 200줄로 truncate해야 함', async () => {
+      const config = createTestConfig();
+      await generateWorkflowFiles(testDir, config);
+
+      const content = await fs.readFile(
+        path.join(testDir, '.pr-checks', 'scripts', 'pr-test-report.sh'),
+        'utf-8'
+      );
+
+      expect(content).toContain('tail -100 test_output.txt');
+    });
   });
 
   describe('플랫폼별 경로', () => {

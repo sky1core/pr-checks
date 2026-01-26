@@ -89,7 +89,7 @@ else
     echo "📋 테스트 실행 커맨드: \\\`${check.command}\\\`"
     echo ""
     printf '\`\`\`\\n'
-    tail -50 test_output.txt 2>/dev/null || echo "(no output)"
+    tail -100 test_output.txt 2>/dev/null || echo "(no output)"
     printf '\\n\`\`\`\\n\\n'
     echo "🔗 [상세 로그]($RUN_URL) | 📌 $SHORT_SHA"
     echo ""

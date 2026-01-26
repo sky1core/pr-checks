@@ -142,6 +142,8 @@ export interface InputConfig {
   branches: string[];
   /** Self-hosted runner 설정 */
   selfHosted?: SelfHostedConfig;
+  /** PR 가이드 코멘트에 추가할 커스텀 문구 */
+  guideMessage?: string;
 }
 
 /**

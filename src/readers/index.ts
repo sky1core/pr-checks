@@ -245,6 +245,7 @@ function mergeWithDefaults(parsed: Record<string, unknown>): InputConfig {
     generateApprovalOverride: parseBoolean(parsed.generateApprovalOverride, defaults.generateApprovalOverride),
     branches: Array.isArray(parsed.branches) ? parsed.branches.map(String) : defaults.branches,
     selfHosted: parseSelfHostedConfig(parsed.selfHosted),
+    guideMessage: parsed.guideMessage as string | undefined,
   };
 }
 
