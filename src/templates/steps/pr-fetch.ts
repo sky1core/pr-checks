@@ -17,6 +17,9 @@ export function generatePrFetchStep(): string {
           # 기존 PR 브랜치 삭제 (있으면)
           git branch -D pr-\$PR_NUMBER 2>/dev/null || true
 
+          # 이전 실행에서 남은 로컬 변경사항 정리 (tracked 파일)
+          git checkout -- .
+
           # PR 브랜치 fetch
           git fetch origin pull/\$PR_NUMBER/head:pr-\$PR_NUMBER
 
