@@ -12,6 +12,7 @@ import type {
   TestFramework,
   Platform,
   CliTool,
+  CliReviewParser,
   SelfHostedConfig,
   PullRequestAction,
 } from '../types/config.js';
@@ -195,6 +196,7 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
 
   if (type === 'pr-review') {
     const provider = (rawCheck.provider as PrReviewCheck['provider']) ?? 'bedrock';
+    const parsedParser = parseString(rawCheck.parser, '').trim().toLowerCase();
     const check: PrReviewCheck = {
       ...baseCheck,
       type: 'pr-review',
@@ -203,6 +205,9 @@ function parseCheck(rawCheck: Record<string, unknown>, index: number): Check {
       apiKeySecret: provider === 'bedrock' ? parseString(rawCheck.apiKeySecret, '') : undefined,
       cliTool: provider === 'cli' ? (rawCheck.cliTool as CliTool) : undefined,
       cliCommand: provider === 'cli' ? (parseString(rawCheck.cliCommand, '').trim() || undefined) : undefined,
+      parser: parsedParser
+        ? (parsedParser as CliReviewParser)
+        : (provider === 'cli' ? 'auto' : undefined),
       customRules: rawCheck.customRules as string | undefined,
     };
     return check;
@@ -323,6 +328,15 @@ function validateConfig(config: InputConfig): void {
             throw new Error(`checks[${i}].cliTool: cli provider에서는 claude, codex, gemini, kiro 중 하나를 지정하거나 cliCommand를 사용해야 합니다.`);
           }
         }
+
+        const validParsers = ['auto', 'json', 'verdict'];
+        if (check.parser && !validParsers.includes(check.parser)) {
+          throw new Error(`checks[${i}].parser: 지원하지 않는 파서입니다: ${check.parser} (auto, json, verdict 중 하나)`);
+        }
+      }
+
+      if (check.provider !== 'cli' && check.parser) {
+        throw new Error(`checks[${i}].parser는 cli provider에서만 사용할 수 있습니다.`);
       }
     }
   }

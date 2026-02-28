@@ -28,11 +28,21 @@ export function generateOverrideGateJob(branchCondition: string): string {
           PR_NUMBER="\${{ github.event.pull_request.number }}"
           HEAD_SHA="\${{ github.event.pull_request.head.sha }}"
 
-          GATE_STATUS=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses" \\
-            | jq '[.[] | select(.context == "${STATUS_CONTEXTS.prChecksStatus}")] | sort_by(.updated_at) | last')
+          STATUSES_RAW=""
+          if ! STATUSES_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses"); then
+            echo "⚠️ statuses API 조회 실패"
+            exit 0
+          fi
+          if ! GATE_STATUS=\$(printf '%s' "\$STATUSES_RAW" | jq '[.[] | select(.context == "${STATUS_CONTEXTS.prChecksStatus}")] | sort_by(.updated_at) | last'); then
+            echo "⚠️ GATE_STATUS jq 파싱 실패"
+            exit 0
+          fi
 
-          GATE_STATE=\$(echo "\$GATE_STATUS" | jq -r '.state // "none"')
+          GATE_STATE=\$(printf '%s' "\$GATE_STATUS" | jq -r '.state // "none"')
+          if [ -z "\$GATE_STATE" ] || [ "\$GATE_STATE" = "null" ]; then
+            GATE_STATE="none"
+          fi
 
           if [ "\$GATE_STATE" != "success" ]; then
             curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\

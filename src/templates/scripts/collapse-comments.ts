@@ -17,24 +17,24 @@ ALL_COMMENTS=\$(curl -sS -f -H "Authorization: token \${{ secrets.GITHUB_TOKEN }
   exit 0
 }
 
-TOTAL_COUNT=\$(echo "\$ALL_COMMENTS" | jq 'length' 2>/dev/null)
+TOTAL_COUNT=\$(printf '%s' "\$ALL_COMMENTS" | jq 'length' 2>/dev/null)
 if [ -z "\$TOTAL_COUNT" ] || [ "\$TOTAL_COUNT" = "null" ]; then
   echo "Warning: Invalid response from API"
   exit 0
 fi
 echo "Total comments: \$TOTAL_COUNT"
 
-COMMENTS=\$(echo "\$ALL_COMMENTS" | jq '[.[] | select(.body | test("${metadataPattern}")) | {id, body}]')
+COMMENTS=\$(printf '%s' "\$ALL_COMMENTS" | jq '[.[] | select(.body | test("${metadataPattern}")) | {id, body}]')
 
-COMMENT_COUNT=\$(echo "\$COMMENTS" | jq 'length')
+COMMENT_COUNT=\$(printf '%s' "\$COMMENTS" | jq 'length')
 echo "Found \$COMMENT_COUNT comments matching pattern"
 
-echo "\$COMMENTS" | jq -c '.[]' | while read -r comment; do
-  COMMENT_ID=\$(echo "\$comment" | jq -r '.id')
-  BODY=\$(echo "\$comment" | jq -r '.body')
+printf '%s' "\$COMMENTS" | jq -c '.[]' | while read -r comment; do
+  COMMENT_ID=\$(printf '%s' "\$comment" | jq -r '.id')
+  BODY=\$(printf '%s' "\$comment" | jq -r '.body')
 
   # 메타데이터에서 SHA 추출
-  COMMENT_SHA=\$(echo "\$BODY" | grep -o '"sha":"[^"]*"' | head -1 | sed 's/"sha":"\\([^"]*\\)"/\\1/')
+  COMMENT_SHA=\$(printf '%s' "\$BODY" | grep -o '"sha":"[^"]*"' | head -1 | sed 's/"sha":"\\([^"]*\\)"/\\1/')
 
   # SHA 추출 실패 시 스킵
   if [ -z "\$COMMENT_SHA" ]; then
@@ -52,7 +52,7 @@ echo "\$COMMENTS" | jq -c '.[]' | while read -r comment; do
 
   # 메타데이터의 collapsed:false → collapsed:true 변경
   # <details open> → <details> 변경
-  NEW_BODY=\$(echo "\$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
+  NEW_BODY=\$(printf '%s' "\$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
 
   printf '%s' "\$NEW_BODY" > collapse_body.md
   PATCH_BODY=\$(jq -Rs '.' collapse_body.md)

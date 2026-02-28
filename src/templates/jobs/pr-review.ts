@@ -1,7 +1,11 @@
-import type { Config, PrReviewCheck, PrTestCheck, CliTool } from '../../types/config.js';
+import type { Config, PrReviewCheck, PrTestCheck, CliTool, CliReviewParser } from '../../types/config.js';
 import { STATUS_MESSAGES } from '../constants/messages.js';
 import { COMMENT_MARKERS } from '../constants/comments.js';
-import { buildPromptForJq, CLI_REVIEW_PROMPT } from '../constants/prompts.js';
+import {
+  buildPromptForJq,
+  CLI_REVIEW_JSON_PROMPT,
+  CLI_REVIEW_VERDICT_PROMPT,
+} from '../constants/prompts.js';
 import { generateCollapsePrReviewCommentsScript } from '../scripts/collapse-comments.js';
 import { indent, formatRunner } from '../utils/index.js';
 import {
@@ -97,10 +101,10 @@ function generateBedrockReviewStep(check: PrReviewCheck): string {
             }')")
 
           # Tool Use 응답에서 결과 추출
-          TOOL_INPUT=\$(echo "\$RESPONSE" | jq -r '.output.message.content[0].toolUse.input // empty')
+          TOOL_INPUT=\$(printf '%s' "\$RESPONSE" | jq -r '.output.message.content[0].toolUse.input // empty')
 
           if [ -z "\$TOOL_INPUT" ]; then
-            ERROR_MSG=\$(echo "\$RESPONSE" | jq -r '.message // .error // empty')
+            ERROR_MSG=\$(printf '%s' "\$RESPONSE" | jq -r '.message // .error // empty')
             if [ -z "\$ERROR_MSG" ]; then
               ERROR_MSG="알 수 없는 오류"
             fi
@@ -109,8 +113,8 @@ function generateBedrockReviewStep(check: PrReviewCheck): string {
             RESULT="critical"
             SUMMARY="API 호출 실패: \$ERROR_MSG"
           else
-            RESULT=\$(echo "\$TOOL_INPUT" | jq -r '.result')
-            DETAILS=\$(echo "\$TOOL_INPUT" | jq -r '.details')
+            RESULT=\$(printf '%s' "\$TOOL_INPUT" | jq -r '.result // "critical"')
+            DETAILS=\$(printf '%s' "\$TOOL_INPUT" | jq -r '.details // "No details"')
             echo "\$DETAILS" > review.txt
 
             case "\$RESULT" in
@@ -145,6 +149,107 @@ function getCliCommand(cliTool: CliTool): string {
   }
 }
 
+type ResolvedCliParser = Exclude<CliReviewParser, 'auto'>;
+
+/**
+ * CLI 파서 모드 결정
+ * - auto: claude/codex/json, gemini/kiro/verdict
+ * - cliCommand는 auto일 때 json 기본
+ */
+function resolveCliParser(check: PrReviewCheck): ResolvedCliParser {
+  const parser = check.parser ?? 'auto';
+
+  if (parser === 'json' || parser === 'verdict') {
+    return parser;
+  }
+
+  // auto 모드
+  if (check.cliCommand) {
+    return 'json';
+  }
+
+  switch (check.cliTool) {
+    case 'claude':
+    case 'codex':
+      return 'json';
+    case 'gemini':
+    case 'kiro':
+      return 'verdict';
+    default:
+      // validation에서 이미 차단되지만 안전장치로 json 기본
+      return 'json';
+  }
+}
+
+/**
+ * VERDICT 마커 파서 스크립트 생성
+ */
+function generateVerdictParseScript(reviewFile: string): string {
+  return `          # VERDICT 마커 우선, 없으면 이모지 카운트로 판정
+          if grep -q "<<<VERDICT:CRITICAL>>>" "${reviewFile}"; then
+            echo "result=critical" >> \$GITHUB_OUTPUT
+          elif grep -q "<<<VERDICT:WARNING>>>" "${reviewFile}"; then
+            echo "result=warning" >> \$GITHUB_OUTPUT
+          elif grep -q "<<<VERDICT:OK>>>" "${reviewFile}"; then
+            echo "result=ok" >> \$GITHUB_OUTPUT
+          elif [ \$EXIT_CODE -ne 0 ]; then
+            echo "result=critical" >> \$GITHUB_OUTPUT
+          else
+            # 마커 없으면 이모지 카운트로 판정
+            CRITICAL_COUNT=\$(grep -c "🔴" "${reviewFile}" || true)
+            WARNING_COUNT=\$(grep -c "🟡" "${reviewFile}" || true)
+            if [ "\$CRITICAL_COUNT" -gt 0 ]; then
+              echo "result=critical" >> \$GITHUB_OUTPUT
+            elif [ "\$WARNING_COUNT" -gt 0 ]; then
+              echo "result=warning" >> \$GITHUB_OUTPUT
+            else
+              echo "result=ok" >> \$GITHUB_OUTPUT
+            fi
+          fi
+
+          # 출력에서 VERDICT 마커 제거 (댓글에는 표시 안 함)
+          perl -pi -e 's/<<<VERDICT:(CRITICAL|WARNING|OK)>>>//g' "${reviewFile}"`;
+}
+
+/**
+ * JSON 파서 스크립트 생성
+ */
+function generateJsonParseScript(rawOutputFile: string, rawErrorFile: string, reviewFile: string): string {
+  return `          # parser=json: 구조화 출력(JSON)만 허용
+          if [ \$EXIT_CODE -ne 0 ]; then
+            echo "result=critical" >> \$GITHUB_OUTPUT
+            {
+              echo "CLI command failed (exit code: \$EXIT_CODE)"
+              echo ""
+              echo "--- Raw Output ---"
+              cat "${rawOutputFile}"
+              if [ -s "${rawErrorFile}" ]; then
+                echo ""
+                echo "--- STDERR ---"
+                cat "${rawErrorFile}"
+              fi
+            } > "${reviewFile}"
+          elif jq -e 'type == "object" and (.result | type == "string") and (.details | type == "string") and (.result == "critical" or .result == "warning" or .result == "ok")' "${rawOutputFile}" > /dev/null 2>&1; then
+            RESULT=\$(jq -r '.result' "${rawOutputFile}")
+            DETAILS=\$(jq -r '.details' "${rawOutputFile}")
+            echo "\$DETAILS" > "${reviewFile}"
+            echo "result=\$RESULT" >> \$GITHUB_OUTPUT
+          else
+            echo "result=critical" >> \$GITHUB_OUTPUT
+            {
+              echo "JSON 파싱 실패: parser=json 모드에서는 {\\"result\\":\\"critical|warning|ok\\",\\"details\\":\\"...\\"} 형식만 허용됩니다."
+              echo ""
+              echo "--- Raw Output ---"
+              cat "${rawOutputFile}"
+              if [ -s "${rawErrorFile}" ]; then
+                echo ""
+                echo "--- STDERR ---"
+                cat "${rawErrorFile}"
+              fi
+            } > "${reviewFile}"
+          fi`;
+}
+
 /**
  * CLI AI 리뷰 스텝 생성
  * - pass/fail 판정 없이 텍스트 결과만
@@ -154,13 +259,27 @@ function generateCliReviewStep(check: PrReviewCheck): string {
   const cliTool = check.cliTool!;
   const cliCommand = getCliCommand(cliTool);
   const escapedCustomRules = escapeForBashString(check.customRules || '');
+  const parserMode = resolveCliParser(check);
 
-
+  const cliPrompt = parserMode === 'json' ? CLI_REVIEW_JSON_PROMPT : CLI_REVIEW_VERDICT_PROMPT;
   // 프롬프트를 한 줄로 이스케이프 (bash $'...' 문법용)
-  const promptOneLine = CLI_REVIEW_PROMPT
+  const promptOneLine = cliPrompt
     .replace(/\\/g, '\\\\')
     .replace(/'/g, "\\'")
     .replace(/\n/g, '\\n');
+
+  const rawErrorSetup = parserMode === 'json'
+    ? '          RAW_ERROR_FILE="review.stderr.txt"\n'
+    : '';
+  const executeCommand = parserMode === 'json'
+    ? `echo "\$PROMPT" | ${cliCommand} > "\$RAW_OUTPUT_FILE" 2> "\$RAW_ERROR_FILE"`
+    : `echo "\$PROMPT" | ${cliCommand} > "\$RAW_OUTPUT_FILE" 2>&1`;
+  const parseScript = parserMode === 'json'
+    ? generateJsonParseScript('$RAW_OUTPUT_FILE', '$RAW_ERROR_FILE', 'review.txt')
+    : generateVerdictParseScript('review.txt');
+  const cleanupScript = parserMode === 'json'
+    ? '          rm -f "$RAW_OUTPUT_FILE" "$RAW_ERROR_FILE"'
+    : '          rm -f "$RAW_OUTPUT_FILE"';
 
   return `      - name: Run AI Review (${cliTool})
         id: ai-check
@@ -187,35 +306,18 @@ function generateCliReviewStep(check: PrReviewCheck): string {
           PROMPT=\$'${promptOneLine}\\n\\n'\$CUSTOM_RULES\$USER_PROMPT\$'\\n\\n=== DIFF ===\\n'\$DIFF_CONTENT\$'\\n=== END DIFF ==='
 
           # exit code 캡처 (실패해도 출력은 저장)
+          RAW_OUTPUT_FILE="review.raw.txt"
+${rawErrorSetup}          # parser=json이면 stdout/stderr 분리, verdict면 기존처럼 결합
           set +e
-          echo "\$PROMPT" | ${cliCommand} > review.txt 2>&1
+          ${executeCommand}
           EXIT_CODE=\$?
           set -e
 
-          # VERDICT 마커 우선, 없으면 이모지 카운트로 판정
-          if grep -q "<<<VERDICT:CRITICAL>>>" review.txt; then
-            echo "result=critical" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:WARNING>>>" review.txt; then
-            echo "result=warning" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:OK>>>" review.txt; then
-            echo "result=ok" >> \$GITHUB_OUTPUT
-          elif [ \$EXIT_CODE -ne 0 ]; then
-            echo "result=critical" >> \$GITHUB_OUTPUT
-          else
-            # 마커 없으면 이모지 카운트로 판정
-            CRITICAL_COUNT=\$(grep -c "🔴" review.txt || true)
-            WARNING_COUNT=\$(grep -c "🟡" review.txt || true)
-            if [ "\$CRITICAL_COUNT" -gt 0 ]; then
-              echo "result=critical" >> \$GITHUB_OUTPUT
-            elif [ "\$WARNING_COUNT" -gt 0 ]; then
-              echo "result=warning" >> \$GITHUB_OUTPUT
-            else
-              echo "result=ok" >> \$GITHUB_OUTPUT
-            fi
-          fi
+          cp "\$RAW_OUTPUT_FILE" review.txt
 
-          # 출력에서 VERDICT 마커 제거 (댓글에는 표시 안 함)
-          perl -pi -e 's/<<<VERDICT:(CRITICAL|WARNING|OK)>>>//g' review.txt`;
+${parseScript}
+
+${cleanupScript}`;
 }
 
 /**
@@ -227,9 +329,23 @@ function generateCliReviewStep(check: PrReviewCheck): string {
 function generateCustomCommandReviewStep(check: PrReviewCheck, config: Config): string {
   const command = check.cliCommand!;
   const { selfHosted } = config.input;
+  const parserMode = resolveCliParser(check);
 
   // selfHosted는 repo 서브디렉토리로 클론
   const workingDir = selfHosted ? '\n        working-directory: repo' : '';
+
+  const rawErrorSetup = parserMode === 'json'
+    ? '          RAW_ERROR_FILE="${{ github.workspace }}/review.stderr.txt"\n'
+    : '';
+  const executeCommand = parserMode === 'json'
+    ? `${command} "\$PR_NUMBER" "\$USER_MESSAGE" > "\$RAW_OUTPUT_FILE" 2> "\$RAW_ERROR_FILE"`
+    : `${command} "\$PR_NUMBER" "\$USER_MESSAGE" > "\$RAW_OUTPUT_FILE" 2>&1`;
+  const parseScript = parserMode === 'json'
+    ? generateJsonParseScript('$RAW_OUTPUT_FILE', '$RAW_ERROR_FILE', '$REVIEW_FILE')
+    : generateVerdictParseScript('$REVIEW_FILE');
+  const cleanupScript = parserMode === 'json'
+    ? '          rm -f "$RAW_OUTPUT_FILE" "$RAW_ERROR_FILE"'
+    : '          rm -f "$RAW_OUTPUT_FILE"';
 
   return `      - name: Run AI Review (custom)
         id: ai-check${workingDir}
@@ -247,35 +363,18 @@ function generateCustomCommandReviewStep(check: PrReviewCheck, config: Config): 
           # 커스텀 명령어 실행 (PR 번호 + 추가 메시지)
           # review.txt는 workspace에 저장 (다른 step에서 접근 가능하도록)
           REVIEW_FILE="\${{ github.workspace }}/review.txt"
+          RAW_OUTPUT_FILE="\${{ github.workspace }}/review.raw.txt"
+${rawErrorSetup}          # parser=json이면 stdout/stderr 분리, verdict면 기존처럼 결합
           set +e
-          ${command} "\$PR_NUMBER" "\$USER_MESSAGE" > "\$REVIEW_FILE" 2>&1
+          ${executeCommand}
           EXIT_CODE=\$?
           set -e
 
-          # VERDICT 마커 우선, 없으면 이모지 카운트로 판정
-          if grep -q "<<<VERDICT:CRITICAL>>>" "\$REVIEW_FILE"; then
-            echo "result=critical" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:WARNING>>>" "\$REVIEW_FILE"; then
-            echo "result=warning" >> \$GITHUB_OUTPUT
-          elif grep -q "<<<VERDICT:OK>>>" "\$REVIEW_FILE"; then
-            echo "result=ok" >> \$GITHUB_OUTPUT
-          elif [ \$EXIT_CODE -ne 0 ]; then
-            echo "result=critical" >> \$GITHUB_OUTPUT
-          else
-            # 마커 없으면 이모지 카운트로 판정
-            CRITICAL_COUNT=\$(grep -c "🔴" "\$REVIEW_FILE" || true)
-            WARNING_COUNT=\$(grep -c "🟡" "\$REVIEW_FILE" || true)
-            if [ "\$CRITICAL_COUNT" -gt 0 ]; then
-              echo "result=critical" >> \$GITHUB_OUTPUT
-            elif [ "\$WARNING_COUNT" -gt 0 ]; then
-              echo "result=warning" >> \$GITHUB_OUTPUT
-            else
-              echo "result=ok" >> \$GITHUB_OUTPUT
-            fi
-          fi
+          cp "\$RAW_OUTPUT_FILE" "\$REVIEW_FILE"
 
-          # 출력에서 VERDICT 마커 제거 (댓글에는 표시 안 함)
-          perl -pi -e 's/<<<VERDICT:(CRITICAL|WARNING|OK)>>>//g' "\$REVIEW_FILE"`;
+${parseScript}
+
+${cleanupScript}`;
 }
 
 /**
@@ -471,9 +570,9 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
           if [[ "\${{ github.server_url }}" == *"github.com"* ]]; then
             RUN_URL="\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\${{ github.run_id }}"
           else
-            ACTUAL_RUN_NUMBER=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-              "\${{ github.api_url }}/repos/\${{ github.repository }}/actions/runs/\${{ github.run_id }}" \\
-              | jq -r '.run_number // empty' 2>/dev/null)
+            RUN_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+              "\${{ github.api_url }}/repos/\${{ github.repository }}/actions/runs/\${{ github.run_id }}" 2>/dev/null) || RUN_RAW=""
+            ACTUAL_RUN_NUMBER=\$(printf '%s' "\$RUN_RAW" | jq -r '.run_number // empty' 2>/dev/null)
             if [ -n "\$ACTUAL_RUN_NUMBER" ]; then
               RUN_URL="\${{ github.server_url }}/\${{ github.repository }}/actions/runs/\$ACTUAL_RUN_NUMBER"
             else
@@ -491,7 +590,7 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
             RUNNER_TYPE="🏠 Self-hosted"
           fi
 
-          # Diff 크기 (KB 단위로 표시)
+${useCustomCommand ? `          DIFF_DISPLAY=""` : `          # Diff 크기 (KB 단위로 표시)
           DIFF_SIZE="\${{ steps.${diffStepId}.outputs.diff_size }}"
           if [ -n "\$DIFF_SIZE" ] && [ "\$DIFF_SIZE" -gt 0 ] 2>/dev/null; then
             if [ "\$DIFF_SIZE" -ge 1024 ]; then
@@ -502,7 +601,7 @@ ${indent(generateCollapsePrReviewCommentsScript(check.name), 10)}
             fi
           else
             DIFF_DISPLAY=""
-          fi
+          fi`}
 
           # 비공식 실행 여부
           IS_OFFICIAL="\${{ needs.check-trigger.outputs.is_official }}"

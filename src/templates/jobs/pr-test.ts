@@ -75,9 +75,17 @@ ${generatePrFetchStep()}
         id: pr-branch
         run: |
           PR_NUMBER="\${{ needs.check-trigger.outputs.pr_number }}"
-          BRANCH=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER" \\
-            | jq -r '.head.ref')
+          PR_RAW=""
+          if ! PR_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER"); then
+            echo "::error::PR API 조회 실패"
+            exit 1
+          fi
+          BRANCH=\$(printf '%s' "\$PR_RAW" | jq -r '.head.ref')
+          if [ -z "\$BRANCH" ] || [ "\$BRANCH" = "null" ]; then
+            echo "::error::PR 브랜치를 가져올 수 없음"
+            exit 1
+          fi
           echo "branch=\$BRANCH" >> \$GITHUB_OUTPUT
 
       - uses: actions/checkout@v4

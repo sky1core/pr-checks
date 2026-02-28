@@ -5,8 +5,13 @@ import type { Config } from '../../types/config.js';
  */
 export function generateGitDiffStep(_config: Config): string {
   // GitHub/Gitea API에서 base branch 가져오기 (양쪽 동일)
-  const getBaseBranch = `BASE_BRANCH=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER" | jq -r '.base.ref')`;
+  const getBaseBranch = `PR_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER") || { echo "::error::PR API 조회 실패"; exit 1; }
+          BASE_BRANCH=\$(printf '%s' "\$PR_RAW" | jq -r '.base.ref')
+          if [ -z "\$BASE_BRANCH" ] || [ "\$BASE_BRANCH" = "null" ]; then
+            echo "::error::base branch를 가져올 수 없음"
+            exit 1
+          fi`;
 
   return `      - name: Generate diff using git
         id: git-diff

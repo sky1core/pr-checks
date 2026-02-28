@@ -32,9 +32,9 @@ if [[ "$GITHUB_SERVER_URL" == *"github.com"* ]]; then
   RUN_URL="\${GITHUB_SERVER_URL}/\${GITHUB_REPOSITORY}/actions/runs/\${GITHUB_RUN_ID}"
 else
   # Gitea: Query API to get correct run_number from run_id
-  ACTUAL_RUN_NUMBER=\$(curl -sf -H "Authorization: token \$GITHUB_TOKEN" \\
-    "\$GITHUB_API_URL/repos/\$GITHUB_REPOSITORY/actions/runs/\$GITHUB_RUN_ID" \\
-    | jq -r '.run_number // empty' 2>/dev/null)
+  RUN_RAW=\$(curl -sf -H "Authorization: token \$GITHUB_TOKEN" \\
+    "\$GITHUB_API_URL/repos/\$GITHUB_REPOSITORY/actions/runs/\$GITHUB_RUN_ID" 2>/dev/null) || RUN_RAW=""
+  ACTUAL_RUN_NUMBER=\$(printf '%s' "\$RUN_RAW" | jq -r '.run_number // empty' 2>/dev/null)
   if [ -n "\$ACTUAL_RUN_NUMBER" ]; then
     RUN_URL="\${GITHUB_SERVER_URL}/\${GITHUB_REPOSITORY}/actions/runs/\${ACTUAL_RUN_NUMBER}"
   else
@@ -139,7 +139,7 @@ ALL_COMMENTS=$(curl -sS -f -H "Authorization: token $GITHUB_TOKEN" \\
   exit 0
 }
 
-TOTAL_COUNT=$(echo "$ALL_COMMENTS" | jq 'length' 2>/dev/null)
+TOTAL_COUNT=$(printf '%s' "$ALL_COMMENTS" | jq 'length' 2>/dev/null)
 if [ -z "$TOTAL_COUNT" ] || [ "$TOTAL_COUNT" = "null" ]; then
   echo "Warning: Invalid response from API"
   exit 0
@@ -147,17 +147,17 @@ fi
 echo "Total comments: $TOTAL_COUNT"
 
 # Filter comments with metadata: check="${checkName}" and collapsed:false
-COMMENTS=$(echo "$ALL_COMMENTS" | jq '[.[] | select(.body | test("${metadataPattern}")) | {id, body}]')
+COMMENTS=$(printf '%s' "$ALL_COMMENTS" | jq '[.[] | select(.body | test("${metadataPattern}")) | {id, body}]')
 
-COMMENT_COUNT=$(echo "$COMMENTS" | jq 'length')
+COMMENT_COUNT=$(printf '%s' "$COMMENTS" | jq 'length')
 echo "Found $COMMENT_COUNT comments matching pattern"
 
-echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
-  COMMENT_ID=$(echo "$comment" | jq -r '.id')
-  BODY=$(echo "$comment" | jq -r '.body')
+printf '%s' "$COMMENTS" | jq -c '.[]' | while read -r comment; do
+  COMMENT_ID=$(printf '%s' "$comment" | jq -r '.id')
+  BODY=$(printf '%s' "$comment" | jq -r '.body')
 
   # Extract SHA from metadata
-  COMMENT_SHA=$(echo "$BODY" | grep -o '"sha":"[^"]*"' | head -1 | sed 's/"sha":"\\([^"]*\\)"/\\1/')
+  COMMENT_SHA=$(printf '%s' "$BODY" | grep -o '"sha":"[^"]*"' | head -1 | sed 's/"sha":"\\([^"]*\\)"/\\1/')
 
   # Skip if SHA extraction failed
   if [ -z "$COMMENT_SHA" ]; then
@@ -175,7 +175,7 @@ echo "$COMMENTS" | jq -c '.[]' | while read -r comment; do
 
   # Update metadata: collapsed:false → collapsed:true
   # Change <details open> → <details>
-  NEW_BODY=$(echo "$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
+  NEW_BODY=$(printf '%s' "$BODY" | sed 's/"collapsed":false/"collapsed":true/' | sed 's/<details open>/<details>/')
 
   printf '%s' "$NEW_BODY" > new_body.md
   PATCH_BODY=$(jq -Rs '.' new_body.md)

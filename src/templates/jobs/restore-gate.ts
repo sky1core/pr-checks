@@ -22,12 +22,20 @@ export function generateRestoreGateJob(config: Config, branchCondition: string):
   const checkFailureConditions: string[] = [];
 
   for (const check of requiredMustPassChecks) {
+    const stateVar = `${check.name.toUpperCase().replace(/-/g, '_')}_STATE`;
     checkFailureConditions.push(`
           # ${check.name} 상태 확인
-          ${check.name.toUpperCase().replace(/-/g, '_')}_STATE=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses" \\
-            | jq -r '[.[] | select(.context == "${check.name}")] | sort_by(.updated_at) | last | .state // "none"')
-          if [ "\$${check.name.toUpperCase().replace(/-/g, '_')}_STATE" != "success" ]; then
+          ${stateVar}_RAW=""
+          if ! ${stateVar}_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses"); then
+            ${stateVar}="none"
+          elif ! ${stateVar}=\$(printf '%s' "\$${stateVar}_RAW" | jq -r '[.[] | select(.context == "${check.name}")] | sort_by(.updated_at) | last | .state // "none"'); then
+            ${stateVar}="none"
+          fi
+          if [ -z "\$${stateVar}" ] || [ "\$${stateVar}" = "null" ]; then
+            ${stateVar}="none"
+          fi
+          if [ "\$${stateVar}" != "success" ]; then
             SHOULD_RESTORE="true"
           fi`);
   }
@@ -35,12 +43,20 @@ export function generateRestoreGateJob(config: Config, branchCondition: string):
   // required but !mustPass 체크들도 확인 (실행하지 않았으면 복원)
   const requiredRunOnlyChecks = input.checks.filter((c) => c.mustRun && !c.mustPass);
   for (const check of requiredRunOnlyChecks) {
+    const stateVar = `${check.name.toUpperCase().replace(/-/g, '_')}_STATE`;
     checkFailureConditions.push(`
           # ${check.name} 실행 여부 확인
-          ${check.name.toUpperCase().replace(/-/g, '_')}_STATE=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses" \\
-            | jq -r '[.[] | select(.context == "${check.name}")] | sort_by(.updated_at) | last | .state // "none"')
-          if [ "\$${check.name.toUpperCase().replace(/-/g, '_')}_STATE" = "none" ] || [ "\$${check.name.toUpperCase().replace(/-/g, '_')}_STATE" = "pending" ]; then
+          ${stateVar}_RAW=""
+          if ! ${stateVar}_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses"); then
+            ${stateVar}="none"
+          elif ! ${stateVar}=\$(printf '%s' "\$${stateVar}_RAW" | jq -r '[.[] | select(.context == "${check.name}")] | sort_by(.updated_at) | last | .state // "none"'); then
+            ${stateVar}="none"
+          fi
+          if [ -z "\$${stateVar}" ] || [ "\$${stateVar}" = "null" ]; then
+            ${stateVar}="none"
+          fi
+          if [ "\$${stateVar}" = "none" ] || [ "\$${stateVar}" = "pending" ]; then
             SHOULD_RESTORE="true"
           fi`);
   }
@@ -61,21 +77,40 @@ export function generateRestoreGateJob(config: Config, branchCondition: string):
           HEAD_SHA="\${{ github.event.pull_request.head.sha }}"
 
           # 다른 Approve가 있으면 무시
-          APPROVALS=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER/reviews" \\
-            | jq '[.[] | select(.state == "APPROVED")] | length')
+          REVIEWS_RAW=""
+          if ! REVIEWS_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER/reviews"); then
+            echo "⚠️ reviews API 조회 실패"
+            APPROVALS=0
+          elif ! APPROVALS=\$(printf '%s' "\$REVIEWS_RAW" | jq '[.[] | select(.state == "APPROVED")] | length'); then
+            echo "⚠️ reviews JSON 파싱 실패"
+            APPROVALS=0
+          fi
+          if [ -z "\$APPROVALS" ] || [ "\$APPROVALS" = "null" ]; then
+            APPROVALS=0
+          fi
 
           if [ "\$APPROVALS" -gt 0 ]; then
             exit 0
           fi
 
           # 현재 PR Checks Status 확인
-          GATE_STATUS=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses" \\
-            | jq '[.[] | select(.context == "${STATUS_CONTEXTS.prChecksStatus}")] | sort_by(.updated_at) | last')
+          STATUSES_RAW=""
+          if ! STATUSES_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/commits/\$HEAD_SHA/statuses"); then
+            echo "⚠️ statuses API 조회 실패"
+            exit 0
+          fi
+          if ! GATE_STATUS=\$(printf '%s' "\$STATUSES_RAW" | jq '[.[] | select(.context == "${STATUS_CONTEXTS.prChecksStatus}")] | sort_by(.updated_at) | last'); then
+            echo "⚠️ GATE_STATUS jq 파싱 실패"
+            exit 0
+          fi
 
-          GATE_STATE=\$(echo "\$GATE_STATUS" | jq -r '.state // "none"')
-          GATE_DESC=\$(echo "\$GATE_STATUS" | jq -r '.description // ""')
+          GATE_STATE=\$(printf '%s' "\$GATE_STATUS" | jq -r '.state // "none"')
+          GATE_DESC=\$(printf '%s' "\$GATE_STATUS" | jq -r '.description // ""')
+          if [ -z "\$GATE_STATE" ] || [ "\$GATE_STATE" = "null" ]; then
+            GATE_STATE="none"
+          fi
 
           # success가 아니면 복원 불필요
           if [ "\$GATE_STATE" != "success" ]; then

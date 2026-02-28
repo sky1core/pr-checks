@@ -602,6 +602,40 @@ describe('job 조건문 검증', () => {
 
       expect(parsed.jobs['review-status'].needs).toBeDefined();
     });
+
+    it('체크 상태 조회는 재시도 로직을 포함해야 함 (race 방지)', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('get_check_state()');
+      expect(yaml).toContain('max_attempts=20');
+      expect(yaml).toContain('sleep_seconds=2');
+      // curl과 jq를 분리하여 각각의 실패를 감지
+      expect(yaml).toContain('if ! raw=$(curl');
+      expect(yaml).toContain('curl failed');
+      expect(yaml).toContain('jq parse failed');
+      // 빈 문자열/null도 none으로 취급
+      expect(yaml).toContain('[ -z "$state" ] || [ "$state" = "null" ]');
+      expect(yaml).toContain('state="none"');
+      expect(yaml).toContain('status=$state (retry');
+      expect(yaml).toContain('get_check_state "pr-test"');
+      expect(yaml).toContain('get_check_state "pr-review"');
+    });
+
+    it('재시도 로그는 stderr로 출력해야 함 (state 오염 방지)', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('status=$state (retry');
+      expect(yaml).toContain(')" >&2');
+    });
+
+    it('상태 파싱은 state/status 필드를 모두 지원해야 함', () => {
+      const config = createTestConfig();
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('(.state // .status // "none")');
+    });
   });
 });
 
@@ -1147,7 +1181,10 @@ describe('트리거 파싱 로직', () => {
 });
 
 describe('CLI provider 지원', () => {
-  const createCliConfig = (cliTool: 'claude' | 'codex' | 'gemini' | 'kiro'): Config => ({
+  const createCliConfig = (
+    cliTool: 'claude' | 'codex' | 'gemini' | 'kiro',
+    parser?: 'auto' | 'json' | 'verdict'
+  ): Config => ({
     input: {
       platform: 'github',
       runner: ['self-hosted', 'macOS', 'ARM64'],
@@ -1160,6 +1197,7 @@ describe('CLI provider 지원', () => {
           mustPass: false,
           provider: 'cli',
           cliTool,
+          parser,
         } as PrReviewCheck,
       ],
       ciTrigger: '/checks',
@@ -1234,11 +1272,21 @@ describe('CLI provider 지원', () => {
       // diff 스텝이 없어야 함
       expect(yaml).not.toContain('Get PR diff');
       expect(yaml).not.toContain('DIFF_CONTENT=$(cat diff.txt)');
-      // 3단계 판정
+      // parser auto + cliCommand => json 파서
+      expect(yaml).toContain('parser=json: 구조화 출력(JSON)만 허용');
+      expect(yaml).toContain('jq -e');
+      expect(yaml).toContain('JSON 파싱 실패');
+      expect(yaml).toContain('RAW_ERROR_FILE="${{ github.workspace }}/review.stderr.txt"');
+      expect(yaml).toContain('> "$RAW_OUTPUT_FILE" 2> "$RAW_ERROR_FILE"');
+      expect(yaml).toContain('--- STDERR ---');
+      // verdict 마커 파싱은 없어야 함
+      expect(yaml).not.toContain('<<<VERDICT:CRITICAL>>>');
+      expect(yaml).not.toContain('<<<VERDICT:WARNING>>>');
+      expect(yaml).not.toContain('<<<VERDICT:OK>>>');
+      // result 출력
       expect(yaml).toContain('EXIT_CODE=$?');
       expect(yaml).toContain('result=critical');
-      expect(yaml).toContain('result=warning');
-      expect(yaml).toContain('result=ok');
+      expect(yaml).toContain('result=$RESULT');
       // 댓글 푸터에 CLI: custom 표시
       expect(yaml).toContain('CLI: custom');
     });
@@ -1284,7 +1332,7 @@ describe('CLI provider 지원', () => {
     });
 
     it('CLI provider는 VERDICT 마커 기반으로 3단계 판정해야 함 (CRITICAL 우선)', () => {
-      const config = createCliConfig('claude');
+      const config = createCliConfig('gemini');
       const yaml = generatePrChecksWorkflow(config);
 
       // exit code 캡처
@@ -1301,7 +1349,7 @@ describe('CLI provider 지원', () => {
     });
 
     it('CLI 리뷰 프롬프트가 포함되어야 함', () => {
-      const config = createCliConfig('claude');
+      const config = createCliConfig('gemini');
       const yaml = generatePrChecksWorkflow(config);
 
       expect(yaml).toContain('시니어 개발자');
@@ -1310,6 +1358,46 @@ describe('CLI provider 지원', () => {
       expect(yaml).toContain('<<<VERDICT:CRITICAL>>>');
       expect(yaml).toContain('<<<VERDICT:WARNING>>>');
       expect(yaml).toContain('<<<VERDICT:OK>>>');
+    });
+
+    it('auto 모드에서 claude는 JSON 파서를 사용해야 함', () => {
+      const config = createCliConfig('claude');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('parser=json: 구조화 출력(JSON)만 허용');
+      expect(yaml).toContain('최종 출력은 반드시 JSON 객체 1개만 출력하세요.');
+      expect(yaml).toContain('RAW_ERROR_FILE="review.stderr.txt"');
+      expect(yaml).toContain('> "$RAW_OUTPUT_FILE" 2> "$RAW_ERROR_FILE"');
+      expect(yaml).toContain('--- STDERR ---');
+      expect(yaml).not.toContain('<<<VERDICT:CRITICAL>>>');
+    });
+
+    it('auto 모드에서 gemini는 VERDICT 파서를 사용해야 함', () => {
+      const config = createCliConfig('gemini');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('<<<VERDICT:CRITICAL>>>');
+      expect(yaml).toContain('<<<VERDICT:WARNING>>>');
+      expect(yaml).toContain('<<<VERDICT:OK>>>');
+      expect(yaml).toContain('> "$RAW_OUTPUT_FILE" 2>&1');
+    });
+
+    it('parser를 verdict로 강제하면 codex도 VERDICT 파서를 사용해야 함', () => {
+      const config = createCliConfig('codex', 'verdict');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('<<<VERDICT:CRITICAL>>>');
+      expect(yaml).toContain('<<<VERDICT:WARNING>>>');
+      expect(yaml).toContain('<<<VERDICT:OK>>>');
+    });
+
+    it('parser를 json으로 강제하면 gemini도 JSON 파서를 사용해야 함', () => {
+      const config = createCliConfig('gemini', 'json');
+      const yaml = generatePrChecksWorkflow(config);
+
+      expect(yaml).toContain('parser=json: 구조화 출력(JSON)만 허용');
+      expect(yaml).toContain('최종 출력은 반드시 JSON 객체 1개만 출력하세요.');
+      expect(yaml).not.toContain('<<<VERDICT:CRITICAL>>>');
     });
 
     it('CLI provider 댓글이 접기 패턴과 일치해야 함 (회귀 테스트)', () => {

@@ -80,9 +80,9 @@ export function buildPromptForJq(): string {
 }
 
 /**
- * CLI 도구용 프롬프트 (단순 텍스트 출력, pass/fail 판정 없음)
+ * CLI 도구용 프롬프트 (VERDICT 마커 방식)
  */
-export const CLI_REVIEW_PROMPT = `당신은 시니어 개발자입니다. 코드 변경사항을 리뷰해주세요.
+export const CLI_REVIEW_VERDICT_PROMPT = `당신은 시니어 개발자입니다. 코드 변경사항을 리뷰해주세요.
 
 ## 검토 항목
 - 버그: 논리 오류, null/undefined 미처리, race condition
@@ -102,3 +102,35 @@ export const CLI_REVIEW_PROMPT = `당신은 시니어 개발자입니다. 코드
 - 🔴 Critical 있음: <<<VERDICT:CRITICAL>>>
 - 🔴 없고 🟡 Warning 있음: <<<VERDICT:WARNING>>>
 - 둘 다 없음: <<<VERDICT:OK>>>`;
+
+/**
+ * CLI 도구용 프롬프트 (JSON 구조화 출력 방식)
+ */
+export const CLI_REVIEW_JSON_PROMPT = `당신은 시니어 개발자입니다. 코드 변경사항을 리뷰해주세요.
+
+## 검토 항목
+- 버그: 논리 오류, null/undefined 미처리, race condition
+- 보안: injection, 하드코딩된 비밀
+- 성능: 비효율적인 알고리즘
+
+## 위험도 등급
+- 🔴 Critical: 심각한 문제
+- 🟡 Warning: 수정 권장
+- 🟢 Info: 참고 사항
+
+문제 발견 시 파일:라인, 위험도, 설명, 수정 제안을 포함해주세요.
+문제가 없으면 간단히 "코드에 문제가 없습니다"라고 작성해주세요.
+
+## 최종 출력 규칙 (중요)
+- 최종 출력은 반드시 JSON 객체 1개만 출력하세요.
+- 마크다운 코드펜스(\`\`\`)를 사용하지 마세요.
+- JSON 스키마:
+  {"result":"critical|warning|ok","details":"리뷰 본문 문자열"}
+- details에는 리뷰 전체 텍스트를 넣으세요.
+- result 판정:
+  - 🔴 Critical 있으면 critical
+  - 🔴 없고 🟡 Warning 있으면 warning
+  - 그 외는 ok`;
+
+// 하위 호환: 기존 상수명은 VERDICT 프롬프트를 가리킴
+export const CLI_REVIEW_PROMPT = CLI_REVIEW_VERDICT_PROMPT;

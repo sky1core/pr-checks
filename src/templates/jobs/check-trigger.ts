@@ -17,12 +17,17 @@ function generatePermissionCheck(platform: 'github' | 'gitea'): string {
   if (platform === 'github') {
     // GitHub: collaborators API로 직접 권한 확인
     return `          # GitHub: collaborators API로 권한 확인
-          PERMISSION=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
-            "\${{ github.api_url }}/repos/\${{ github.repository }}/collaborators/\$USER/permission" \\
-            | jq -r '.permission' 2>/dev/null || echo "")
+          PERM_RAW=""
+          if ! PERM_RAW=\$(curl -sf -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
+            "\${{ github.api_url }}/repos/\${{ github.repository }}/collaborators/\$USER/permission"); then
+            echo "Failed to get permission for user \$USER"
+            echo "should_continue=false" >> \$GITHUB_OUTPUT
+            exit 0
+          fi
+          PERMISSION=\$(printf '%s' "\$PERM_RAW" | jq -r '.permission // empty' 2>/dev/null || echo "")
 
           if [ -z "\$PERMISSION" ]; then
-            echo "Failed to get permission for user \$USER"
+            echo "Failed to parse permission for user \$USER"
             echo "should_continue=false" >> \$GITHUB_OUTPUT
             exit 0
           fi`;
@@ -190,8 +195,8 @@ ${permissionCheck}
           # HEAD SHA 조회
           PR_RESPONSE=\$(curl -s -w "\\n%{http_code}" -H "Authorization: token \${{ secrets.GITHUB_TOKEN }}" \\
             "\${{ github.api_url }}/repos/\${{ github.repository }}/pulls/\$PR_NUMBER")
-          HTTP_CODE=\$(echo "\$PR_RESPONSE" | tail -n1)
-          RESPONSE_BODY=\$(echo "\$PR_RESPONSE" | sed '\$d')
+          HTTP_CODE=\$(printf '%s\\n' "\$PR_RESPONSE" | tail -n1)
+          RESPONSE_BODY=\$(printf '%s\\n' "\$PR_RESPONSE" | sed '\$d')
 
           if [ "\$HTTP_CODE" != "200" ]; then
             echo "Failed to fetch PR info: HTTP \$HTTP_CODE"
@@ -199,7 +204,7 @@ ${permissionCheck}
             exit 0
           fi
 
-          HEAD_SHA=\$(echo "\$RESPONSE_BODY" | jq -r '.head.sha // empty')
+          HEAD_SHA=\$(printf '%s' "\$RESPONSE_BODY" | jq -r '.head.sha // empty')
           if [ -z "\$HEAD_SHA" ]; then
             echo "Failed to extract head SHA from response"
             echo "should_continue=false" >> \$GITHUB_OUTPUT

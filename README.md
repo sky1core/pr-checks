@@ -312,6 +312,7 @@ AI 코드 리뷰에 사용합니다.
 | `apiKeySecret` | GitHub Secret 이름 (bedrock 전용) |
 | `cliTool` | CLI 도구 이름 (cli 전용) |
 | `cliCommand` | 커스텀 명령어 (cli 전용, cliTool 대신 사용) |
+| `parser` | CLI 출력 파서 (`auto` \| `json` \| `verdict`, 기본값: `auto`) |
 | `customRules` | 추가 리뷰 규칙 |
 
 ## Branch Protection 설정
@@ -450,9 +451,18 @@ checks:
     cliTool: claude
 ```
 
-### 3단계 판정
+### 파서 모드 (`parser`)
 
-CLI provider는 3단계로 리뷰 결과를 판정합니다:
+CLI provider는 `parser` 모드로 출력 파싱 방식을 선택합니다.
+
+- `auto` (기본값)
+  - `claude`, `codex` → `json`
+  - `gemini`, `kiro` → `verdict`
+  - `cliCommand` → `json`
+- `json`: 구조화 JSON 출력만 허용
+- `verdict`: `<<<VERDICT:...>>>` 마커 기반 판정
+
+### 3단계 판정 결과
 
 | 판정 | GitHub Status | 의미 |
 |------|---------------|------|
@@ -460,7 +470,18 @@ CLI provider는 3단계로 리뷰 결과를 판정합니다:
 | ⚠️ WARNING | success | 경고, 머지 가능하지만 확인 필요 |
 | ✅ OK | success | 문제 없음 |
 
-**1. VERDICT 마커 (우선)**
+**1) `parser: json`**
+
+출력은 아래 JSON 객체 **1개만** 허용됩니다:
+```json
+{"result":"critical|warning|ok","details":"리뷰 본문"}
+```
+
+- `result`: `critical` / `warning` / `ok`
+- `details`: PR 코멘트에 표시할 리뷰 본문
+- JSON 파싱 실패 시 `critical` 처리
+
+**2) `parser: verdict`**
 
 출력에 VERDICT 마커가 있으면 이를 우선 사용합니다:
 ```
@@ -472,7 +493,7 @@ CLI provider는 3단계로 리뷰 결과를 판정합니다:
 - CRITICAL이 있으면 머지 차단
 - 마커는 최종 출력에서 자동 제거됨
 
-**2. 폴백 판정 (마커 없을 때)**
+**3) `verdict` 폴백 판정 (마커 없을 때)**
 
 VERDICT 마커가 없으면 다음 순서로 판정:
 1. exit code가 0이 아니면 → ❌ CRITICAL
@@ -493,6 +514,7 @@ checks:
     type: pr-review
     provider: cli
     cliCommand: ./review-wrapper.sh
+    parser: json
 ```
 
 **인자 전달:**
@@ -521,18 +543,19 @@ USER_MESSAGE="$2"
 DIFF=$(gh pr diff "$PR_NUMBER")
 
 # AI 리뷰 실행
-RESULT=$(echo "$DIFF" | my-ai-tool --review --message "$USER_MESSAGE")
+DETAILS=$(echo "$DIFF" | my-ai-tool --review --message "$USER_MESSAGE")
 
-echo "$RESULT"
-
-# VERDICT 마커로 판정 (3단계)
-if echo "$RESULT" | grep -q "🔴"; then
-  echo "<<<VERDICT:CRITICAL>>>"
-elif echo "$RESULT" | grep -q "🟡"; then
-  echo "<<<VERDICT:WARNING>>>"
+# JSON 구조화 출력
+if echo "$DETAILS" | grep -q "🔴"; then
+  RESULT="critical"
+elif echo "$DETAILS" | grep -q "🟡"; then
+  RESULT="warning"
 else
-  echo "<<<VERDICT:OK>>>"
+  RESULT="ok"
 fi
+
+jq -n --arg result "$RESULT" --arg details "$DETAILS" \
+  '{result: $result, details: $details}'
 ```
 
 **주의:** `cliCommand`는 diff나 프롬프트를 직접 처리해야 합니다. 워크플로우는 checkout만 하고 나머지는 스크립트가 담당합니다.

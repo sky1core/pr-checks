@@ -733,7 +733,201 @@ describe('readers', () => {
         expect(config.input.checks[0]).toMatchObject({
           provider: 'cli',
           cliTool: 'claude',
+          parser: 'auto',
         });
+      });
+
+      it('cli provider에서 parser 기본값은 auto여야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'codex',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect((config.input.checks[0] as any).parser).toBe('auto');
+      });
+
+      it('cli provider에서 parser=json 설정을 읽어야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'claude',
+                parser: 'json',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect((config.input.checks[0] as any).parser).toBe('json');
+      });
+
+      it('지원하지 않는 parser 값이면 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'claude',
+                parser: 'xml',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('지원하지 않는 파서입니다');
+      });
+
+      it('bedrock provider에서 parser를 지정하면 에러를 던져야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'ai-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'bedrock',
+                model: 'us.amazon.nova-micro-v1:0',
+                apiKeySecret: 'BEDROCK_API_KEY',
+                parser: 'json',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        await expect(readConfig(testDir)).rejects.toThrow('parser는 cli provider에서만 사용할 수 있습니다');
+      });
+
+      it('cliCommand 사용 시 parser 기본값 auto를 유지해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'custom-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliCommand: './review-wrapper.sh',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect((config.input.checks[0] as any).parser).toBe('auto');
+      });
+
+      it('cliCommand + parser=verdict 조합도 허용해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'custom-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliCommand: './review-wrapper.sh',
+                parser: 'verdict',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect((config.input.checks[0] as any).parser).toBe('verdict');
+      });
+
+      it('parser 대소문자가 섞여도 소문자로 정규화해야 함', async () => {
+        const prChecksDir = path.join(testDir, '.pr-checks');
+        await fs.ensureDir(prChecksDir);
+
+        await fs.writeFile(
+          path.join(prChecksDir, 'config.yml'),
+          yaml.stringify({
+            checks: [
+              {
+                name: 'cli-review',
+                trigger: '/review',
+                type: 'pr-review',
+                mustRun: true,
+                mustPass: false,
+                provider: 'cli',
+                cliTool: 'claude',
+                parser: 'JSON',
+              },
+            ],
+            ciTrigger: '/checks',
+            branches: ['main'],
+          })
+        );
+
+        const config = await readConfig(testDir);
+        expect((config.input.checks[0] as any).parser).toBe('json');
       });
     });
 

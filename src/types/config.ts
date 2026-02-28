@@ -14,6 +14,11 @@ export type AiProvider = 'bedrock' | 'cli';
 export type CliTool = 'claude' | 'codex' | 'gemini' | 'kiro';
 
 /**
+ * CLI 리뷰 출력 파서 타입
+ */
+export type CliReviewParser = 'auto' | 'json' | 'verdict';
+
+/**
  * 테스트 프레임워크 타입 (셋업 스텝 자동 생성용)
  */
 export type TestFramework = 'node' | 'python' | 'go' | 'rust' | 'custom';
@@ -115,6 +120,8 @@ export interface PrReviewCheck extends BaseCheck {
   cliTool?: CliTool;
   /** 커스텀 명령어 (cli provider용, cliTool 대신 사용) - PR 번호만 인자로 전달 */
   cliCommand?: string;
+  /** CLI 리뷰 출력 파서 (cli provider용) */
+  parser?: CliReviewParser;
   /** 프로젝트별 추가 리뷰 규칙 */
   customRules?: string;
 }
